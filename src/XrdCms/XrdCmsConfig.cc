@@ -1384,7 +1384,7 @@ int XrdCmsConfig::xdefs(XrdSysError *eDest, XrdOucStream &CFile)
                                  Zero (default) turns this off.
 
              qmax <n>          - maximum number of requests that may be queued.
-                                 Zero turns this off. The default qmax is 2.5
+                                 One is the minimum. The default qmax is 2.5
                                  the limit value.
 
              redirect {immed | verify}
@@ -1729,9 +1729,9 @@ int XrdCmsConfig::xmang(XrdSysError *eDest, XrdOucStream &CFile)
        {if ((xMeta  = !strcmp("meta", val))
         ||  (xPeer  = !strcmp("peer", val))
         ||  (xProxy = !strcmp("proxy", val)))
-            {if (xMeta  && (isServer || isPeer)
-             || (xPeer  && !isPeer)
-             || (xProxy && !isProxy)) return CFile.noEcho();
+            {if ((xMeta  && (isServer || isPeer))
+             ||  (xPeer  && !isPeer)
+             ||  (xProxy && !isProxy)) return CFile.noEcho();
             val = CFile.GetWord();
            } else if (isPeer) return CFile.noEcho();
        }
