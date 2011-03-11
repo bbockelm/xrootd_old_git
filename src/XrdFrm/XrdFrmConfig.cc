@@ -220,6 +220,8 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
    long long logkeep = 0;
    extern char *optarg;
    extern int opterr, optopt;
+   int pipeFD[2] = {-1, -1};
+   const char *pidFN = 0;
 
 // Obtain the program name (used for logging)
 //
@@ -271,6 +273,8 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
        case 'w': if (XrdOuca2x::a2tm(Say,"wait time",optarg,&WaitPurge))
                     Usage(1);
                  break;
+       case 's': pidFN = optarg;
+                 break;
        default:  sprintf(buff,"'%c'", optopt);
                  if (c == ':') Say.Emsg("Config", buff, "value not specified.");
                     else Say.Emsg("Config", buff, "option is invalid");
@@ -292,7 +296,16 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
 
    // If undercover desired and we are not an agent, do so
    //
-       if (optBG && !isAgent) XrdOucUtils::Undercover(Say, !logfn);
+       if (optBG && !isAgent)
+       {
+#ifdef WIN32
+          XrdOucUtils::Undercover( Say, !logfn );
+#else
+          if (pipe( pipeFD ) == -1)
+             {Say.Emsg("Config", errno, "create a pipe"); exit(17);}
+          XrdOucUtils::Undercover( Say, !logfn, pipeFD );
+#endif
+       }
 
    // Bind the log file if we have one
    //
@@ -384,6 +397,20 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
                                      XRDSYSTHREAD_BIND, "midnight runner")))
           {Say.Emsg("Config", retc, "create logger thread"); NoGo = 1;}
       }
+
+   // if we call this it means that the daemon has forked and we are
+   // in the child process
+#ifndef WIN32
+   if (optBG && !isAgent)
+   {
+      if (pidFN && !XrdOucUtils::PidFile( Say, pidFN ) )
+         NoGo = 1;
+
+      int status = NoGo ? 1 : 0;
+      write( pipeFD[1], &status, sizeof( status ) );
+      close( pipeFD[1]);
+   }
+#endif
 
 // Print ending message
 //
