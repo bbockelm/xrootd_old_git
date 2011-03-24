@@ -1,10 +1,14 @@
 #!/bin/sh
 #-------------------------------------------------------------------------------
-# Library for handling xrootd daemons on RHEL
-# Author: Lukasz Janyst <ljanyst@cern.ch> (09.03.2011)
+# Library for handling xrootd daemons on antique RHEL
+# Author: Lukasz Janyst <ljanyst@cern.ch> (18.03.2011)
 #-------------------------------------------------------------------------------
 
 . /etc/rc.d/init.d/functions
+
+#-------------------------------------------------------------------------------
+# Check pid of a given process
+#-------------------------------------------------------------------------------
 
 #-------------------------------------------------------------------------------
 # Start a daemon
@@ -18,12 +22,16 @@ function startDaemon()
   XROOTD_USER=$3
   INSTANCE=$4
   PIDFILE="/var/run/xrootd/$DAEMON-$4.pid"
-  shift 4
 
-  # useful for storing coredumps
-  mkdir -p /var/spool/xrootd/$INSTANCE
-  cd /var/spool/xrootd/$INSTANCE
-  daemon --user $XROOTD_USER --pidfile $PIDFILE $EXEC $@ -b -s $PIDFILE -n $INSTANCE
+  statusOfTheDaemon $@ > /dev/null
+
+  if test $? -ne 0; then
+    shift 4
+    # change the CWD to have some room for core dumps
+    mkdir -p /var/spool/xrootd/$INSTANCE
+    cd /var/spool/xrootd/$INSTANCE
+    daemon --user $XROOTD_USER $EXEC $@ -b -s $PIDFILE -n $INSTANCE
+  fi
   RETVAL=$?
   echo
   return $RETVAL
@@ -36,7 +44,19 @@ function stopDaemon()
 {
   echo -n "Shutting down xrootd ($1, $4): "
   PIDFILE="/var/run/xrootd/$DAEMON-$4.pid"
-  killproc -p $PIDFILE $1
+
+  if test -r "$PIDFILE"; then
+    PID=`cat "$PIDFILE"`
+    INST=`ps aux | grep $2 | grep $PID | grep $4`
+    if test x"$INST" != x; then
+      kill -TERM "$PID" && success || failure
+      rm -f $PIDFILE
+    else
+      failure
+    fi
+  else
+    failure
+  fi
   RETVAL=$?
   echo
   return $RETVAL
@@ -49,8 +69,23 @@ function statusOfTheDaemon()
 {
   PIDFILE="/var/run/xrootd/$DAEMON-$4.pid"
   echo -n "[$4] "
-  status -p $PIDFILE $1
-  return $RETVAL
+
+  # to be removed when we drop support for RHEL4
+    if test -r "$PIDFILE"; then
+      PID=`cat $PIDFILE`
+      INST=`ps aux | grep $2 | grep $PID | grep $4`
+      if test x"$INST" != x; then
+        echo "$1 (pid $PID) is running..."
+        return 0
+      else
+        echo "$1 is stopped"
+        return 1
+      fi
+    else
+      echo "$1 is stopped"
+      return 1
+    fi
+  return 0
 }
 
 #-------------------------------------------------------------------------------
@@ -58,8 +93,7 @@ function statusOfTheDaemon()
 #-------------------------------------------------------------------------------
 function condrestartDaemon()
 {
-  PIDFILE="/var/run/xrootd/$DAEMON-$4.pid"
-  status -p $PIDFILE $1 > /dev/null
+  statusOfTheDaemon $@ > /dev/null
   if test $? -ne 0; then
      return 0
   fi
