@@ -7,10 +7,6 @@
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC03-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
-  
-//       $Id$
-
-const char *XrdXrootdMonitorCVSID = "$Id$";
 
 #include <errno.h>
 #include <stdlib.h>
@@ -23,8 +19,8 @@ const char *XrdXrootdMonitorCVSID = "$Id$";
 #endif
 
 #include "XrdNet/XrdNet.hh"
-#include "XrdNet/XrdNetDNS.hh"
 #include "XrdNet/XrdNetPeer.hh"
+#include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysPlatform.hh"
 
@@ -61,6 +57,7 @@ char               XrdXrootdMonitor::monIO      = 0;
 char               XrdXrootdMonitor::monFILE    = 0;
 char               XrdXrootdMonitor::monSTAGE   = 0;
 char               XrdXrootdMonitor::monUSER    = 0;
+char               XrdXrootdMonitor::monAUTH    = 0;
 
 /******************************************************************************/
 /*                               G l o b a l s                                */
@@ -300,6 +297,7 @@ void XrdXrootdMonitor::Defaults(char *dest1, int mode1, char *dest2, int mode2)
    monFILE   = (mmode & XROOTD_MON_FILE ? 1 : 0) | monIO;
    monSTAGE  = (mmode & XROOTD_MON_STAGE? 1 : 0);
    monUSER   = (mmode & XROOTD_MON_USER ? 1 : 0);
+   monAUTH   = (mmode & XROOTD_MON_AUTH ? 1 : 0);
 
 // Check where user information should go
 //
@@ -377,14 +375,14 @@ int XrdXrootdMonitor::Init(XrdScheduler *sp, XrdSysError *errp)
 
 // Get the address of the primary destination
 //
-   if (!XrdNetDNS::Host2Dest(Dest1, InetAddr1, &etext))
+   if (!XrdSysDNS::Host2Dest(Dest1, InetAddr1, &etext))
       {eDest->Emsg("Monitor", "setup monitor collector;", etext);
        return 0;
       }
 
 // Get the address of the alternate destination, if we happen to have one
 //
-   if (Dest2 && !XrdNetDNS::Host2Dest(Dest2, InetAddr2, &etext))
+   if (Dest2 && !XrdSysDNS::Host2Dest(Dest2, InetAddr2, &etext))
       {eDest->Emsg("Monitor", "setup monitor collector;", etext);
        return 0;
       }

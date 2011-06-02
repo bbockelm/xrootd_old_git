@@ -8,10 +8,6 @@
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
 
-//           $Id$
-
-const char *XrdFrmXfrMainCVSID = "$Id$";
-
 /* This is the "main" part of the frm_xfragent & frm_xfrd commands.
 */
 
@@ -59,8 +55,8 @@ Where:
 #include <stdio.h>
 #include <sys/param.h>
 
+#include "XrdFrc/XrdFrcTrace.hh"
 #include "XrdFrm/XrdFrmConfig.hh"
-#include "XrdFrm/XrdFrmTrace.hh"
 #include "XrdFrm/XrdFrmXfrAgent.hh"
 #include "XrdFrm/XrdFrmXfrDaemon.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -68,6 +64,7 @@ Where:
 #include "XrdSys/XrdSysLogger.hh"
 #include "XrdSys/XrdSysPthread.hh"
 
+using namespace XrdFrc;
 using namespace XrdFrm;
   
 /******************************************************************************/
@@ -111,7 +108,8 @@ int main(int argc, char *argv[])
 //
     if (!(pP = rindex(argv[0], '/'))) pP = argv[0];
        else pP++;
-   if (strcmp("frm_xfrd", pP)) Config.isAgent = 1;
+   if (strncmp("frm_xfrd", pP, 8)) Config.isAgent = 1;
+
 
 // Perform configuration
 //

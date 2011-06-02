@@ -32,10 +32,9 @@
 #include "XrdCms/XrdCmsTrace.hh"
 #include "XrdCms/XrdCmsTypes.hh"
 
-#include "XrdNet/XrdNetDNS.hh"
-
 #include "XrdOuc/XrdOucPup.hh"
 
+#include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysPlatform.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdSys/XrdSysTimer.hh"
@@ -113,7 +112,7 @@ XrdCmsNode *XrdCmsCluster::Add(XrdLink *lp, int port, int Status,
 // Establish our IP address
 //
    lp->Name(&InetAddr);
-   ipaddr = XrdNetDNS::IPAddr(&InetAddr);
+   ipaddr = XrdSysDNS::IPAddr(&InetAddr);
 
 // Find available slot for this node. Here are the priorities:
 // Slot  = Reconnecting node
@@ -801,8 +800,10 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel)
                     if (!(pmask = Sel.Vec.hf & amask))    return SelFail(Sel,eROfs);
                     smask = 0;
                    }
-           else if (Sel.Opts & XrdCmsSelect::Trunc) {pmask = amask; smask = 0;}
-           else    pmask = ((smask = pinfo.ssvec & amask) ? 0 : amask);
+           else if (Sel.Opts & (XrdCmsSelect::Trunc | XrdCmsSelect::NewFile))
+                   {pmask = amask; smask = 0;}
+           else if ((smask = pinfo.ssvec & amask)) pmask = 0;
+           else pmask = smask = 0;
           } else {
            pmask = Sel.Vec.hf  & amask; 
            if (Sel.Opts & XrdCmsSelect::Online) {pmask &= ~Sel.Vec.pf; smask=0;}
@@ -1586,7 +1587,7 @@ void XrdCmsCluster::setAltMan(int snum, unsigned int ipaddr, int port)
 
 // Insert the ip address of this node into the list of nodes
 //
-   i = XrdNetDNS::IP2String(ipaddr, port, ap, AltSize);
+   i = XrdSysDNS::IP2String(ipaddr, port, ap, AltSize);
    ap[i] = ' ';
 
 // Compute new fence

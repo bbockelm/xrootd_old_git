@@ -23,8 +23,8 @@ libXrdPss_la_SOURCES = \
 libXrdPss_la_LIBADD =    ../XrdClient/libXrdClient.la \
                         ../XrdFfs/libXrdFfs.la  \
                         ../XrdNet/libXrdNet.la \
-                        ../XrdNet/libXrdNetUtil.la \
                         ../XrdOuc/libXrdOuc.la \
                         ../XrdSec//libXrdSec.la \
                         ../XrdSecsss//libXrdSecsss.la \
-                        ../XrdSys/libXrdSys.la
+                        ../XrdSys/libXrdSys.la \
+                        ../XrdPosix/libXrdPosix.la

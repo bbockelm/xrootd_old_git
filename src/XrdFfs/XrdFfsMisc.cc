@@ -29,7 +29,7 @@
 #include "XrdOuc/XrdOucString.hh"
 #include "XrdSec/XrdSecEntity.hh"
 #include "XrdSecsss/XrdSecsssID.hh"
-#include "XrdNet/XrdNetDNS.hh"
+#include "XrdSys/XrdSysDNS.hh"
 #include "XrdFfs/XrdFfsDent.hh"
 #include "XrdFfs/XrdFfsFsinfo.hh"
 #include "XrdFfs/XrdFfsMisc.hh"
@@ -223,7 +223,7 @@ int XrdFfsMisc_get_list_of_data_servers(char* list)
         p[0] = '\0';
 
 //        hostname = XrdFfsMisc_getNameByAddr(hostip);
-        if (XrdNetDNS::getAddrName(hostip, 1, haddr, hname))
+        if (XrdSysDNS::getAddrName(hostip, 1, haddr, hname))
             hostname = hname[0];
         else
             hostname = hostip;
@@ -345,6 +345,9 @@ void XrdFfsMisc_xrd_secsss_init()
     XrdFfsMiscSecsss = true;
     XrdFfsMiscUent = new XrdSecEntity("");
     XrdFfsMiscSssid = new XrdSecsssID(XrdSecsssID::idDynamic);
+
+/* Enforce "sss" security */
+    setenv("XrdSecPROTOCOL", "sss", 1);
 }
 
 void XrdFfsMisc_xrd_secsss_register(uid_t user_uid, gid_t user_gid)
@@ -355,7 +358,7 @@ void XrdFfsMisc_xrd_secsss_register(uid_t user_uid, gid_t user_gid)
 
     if (XrdFfsMiscSecsss)
     {
-        sprintf(user_num, "%d", user_uid);
+        sprintf(user_num, "%x", user_uid);
         pthread_mutex_lock(&XrdFfsMiscSecsss_mutex);
     
         pw = getpwuid(user_uid);
@@ -374,7 +377,7 @@ void XrdFfsMisc_xrd_secsss_editurl(char *url, uid_t user_uid)
 
     if (XrdFfsMiscSecsss)
     {
-        sprintf(user_num, "%d", user_uid);
+        sprintf(user_num, "%x", user_uid);
      
         nurl[0] = '\0';
         strcat(nurl, "root://");

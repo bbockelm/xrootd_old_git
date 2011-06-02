@@ -19,7 +19,8 @@
 ## deliverables
 
 bin_PROGRAMS = xrdadler32 cconfig mpxstats wait41
-
+man1_MANS = ../../docs/man/xrdadler32.1
+man8_MANS = ../../docs/man/mpxstats.8
 
 #############################################################################
 ## Build rules
@@ -41,8 +42,7 @@ cconfig_SOURCES = XrdAppsCconfig.cc
 cconfig_LDADD = \
                        ../XrdNet/libXrdNet.la   \
                        ../XrdOuc/libXrdOuc.la     \
-                       ../XrdSys/libXrdSys.la \
-                       ../XrdNet/libXrdNetUtil.la
+                       ../XrdSys/libXrdSys.la
 
 cconfig_LDFLAGS = -static -export-dynamic
 
@@ -51,8 +51,7 @@ mpxstats_SOURCES = XrdMpxStats.cc
 mpxstats_LDADD = \
                        ../XrdNet/libXrdNet.la   \
                        ../XrdOuc/libXrdOuc.la     \
-                       ../XrdSys/libXrdSys.la \
-                       ../XrdNet/libXrdNetUtil.la
+                       ../XrdSys/libXrdSys.la
 
 mpxstats_LDFLAGS = -static -export-dynamic
 

@@ -13,6 +13,7 @@
 #       -fPIC/-rdynamic (for gcc)
 
 bin_PROGRAMS = xrootd
+man8_MANS = ../../docs/man/xrootd.8
 
 INCLUDES = -I$(top_srcdir)/src -I$(top_builddir)/src
 
@@ -41,10 +42,9 @@ xrootd_LDADD = -ldl \
                   ../XrdOfs/libXrdOfs.la \
                   ../XrdAcc/libXrdAcc.la \
                   ../XrdOss/libXrdOss.la \
-                  ../XrdFrm/libXrdFrm.la \
+                  ../XrdFrc/libXrdFrc.la \
                   ../XrdCms/libXrdCms.la \
                   ../XrdNet/libXrdNet.la \
-                  ../XrdNet/libXrdNetUtil.la \
                   ../XrdOuc/libXrdOuc.la \
                   ../XrdSys/libXrdSys.la 
 

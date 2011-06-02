@@ -30,6 +30,7 @@ xrootdffsinc_HEADERS =  XrdFfsDent.hh XrdFfsFsinfo.hh \
 
 lib_LTLIBRARIES = libXrdFfs.la
 bin_PROGRAMS = xrootdfs
+man1_MANS = ../../docs/man/xrootdfs.1
 
 #############################################################################
 ## Build rules
@@ -49,6 +50,5 @@ xrootdfs_LDADD = libXrdFfs.la $(FUSELIB) \
                  ../XrdSec/libXrdSec.la \
                  ../XrdSecsss/libXrdSecsss.la \
                  ../XrdNet/libXrdNet.la \
-                 ../XrdNet/libXrdNetUtil.la \
                  ../XrdOuc/libXrdOuc.la \
                  ../XrdSys/libXrdSys.la

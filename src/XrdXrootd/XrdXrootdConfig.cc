@@ -21,7 +21,6 @@
 #include "XrdVersion.hh"
 
 #include "XrdSfs/XrdSfsInterface.hh"
-#include "XrdNet/XrdNetDNS.hh"
 #include "XrdNet/XrdNetOpts.hh"
 #include "XrdNet/XrdNetSocket.hh"
 #include "XrdOuc/XrdOuca2x.hh"
@@ -31,6 +30,7 @@
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucTrace.hh"
 #include "XrdOuc/XrdOucUtils.hh"
+#include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysHeaders.hh"
 #include "XrdSys/XrdSysLogger.hh"
@@ -208,11 +208,6 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
    *(bP-1) = '\0';
    XrdOucEnv::Export("XRDEXPORTS", tmp); free(tmp);
 
-// Initialiaze for AIO
-//
-   if (!as_noaio) XrdXrootdAioReq::Init(as_segsize, as_maxperreq, as_maxpersrv);
-      else eDest.Say("Config warning: asynchronous I/O has been disabled!");
-
 // Initialize the security system if this is wanted
 //
    if (!SecLib) eDest.Say("Config warning: 'xrootd.seclib' not specified;"
@@ -244,6 +239,12 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
                                "differs from file system version ", fsver);
       }
 
+// Initialiaze for AIO
+//
+        if (getenv("XRDXROOTD_NOAIO")) as_noaio = 1;
+   else if (!as_noaio) XrdXrootdAioReq::Init(as_segsize, as_maxperreq, as_maxpersrv);
+   else eDest.Say("Config warning: asynchronous I/O has been disabled!");
+
 // Create the file lock manager
 //
    Locker = (XrdXrootdFileLock *)new XrdXrootdFileLock1();
@@ -258,7 +259,7 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
 // Initialize the request ID generation object
 //
    XrdXrootdReqID = new XrdOucReqID((int)Port, pi->myName,
-                                    XrdNetDNS::IPAddr(pi->myAddr));
+                                    XrdSysDNS::IPAddr(pi->myAddr));
 
 // Initialize for prepare processing
 //
@@ -704,13 +705,14 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
 
 /* Function: xmon
 
-   Purpose:  Parse directive: monitor [all] [mbuff <sz>] 
+   Purpose:  Parse directive: monitor [all] [auth] [mbuff <sz>]
                                       [flush <sec>] [window <sec>]
                                       dest [Events] <host:port>
 
    Events: [files] [info] [io] [stage] [user] <host:port>
 
          all                enables monitoring for all connections.
+         auth               add authentication information to "user".
          mbuff  <sz>        size of message buffer.
          flush  <sec>       time (seconds, M, H) between auto flushes.
          window <sec>       time (seconds, M, H) between timing marks.
@@ -733,6 +735,8 @@ int XrdXrootdProtocol::xmon(XrdOucStream &Config)
     while((val = Config.GetWord()))
 
          {     if (!strcmp("all",  val)) xmode = XROOTD_MON_ALL;
+          else if (!strcmp("auth",  val))
+                  monMode[0] = monMode[1] = XROOTD_MON_AUTH;
           else if (!strcmp("flush", val))
                 {if (!(val = Config.GetWord()))
                     {eDest.Emsg("Config", "monitor flush value not specified");

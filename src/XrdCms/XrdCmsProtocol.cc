@@ -38,12 +38,11 @@
 #include "XrdCms/XrdCmsState.hh"
 #include "XrdCms/XrdCmsTrace.hh"
 
-#include "XrdNet/XrdNetDNS.hh"
-
 #include "XrdOuc/XrdOucCRC.hh"
 #include "XrdOuc/XrdOucPup.hh"
 #include "XrdOuc/XrdOucTokenizer.hh"
 
+#include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysHeaders.hh"
 #include "XrdSys/XrdSysTimer.hh"
@@ -362,7 +361,7 @@ void XrdCmsProtocol::Pander(const char *manager, int mport)
            unsigned int ipaddr;
            char *hP;
            Link->Name(&netaddr);
-           ipaddr = XrdNetDNS::IPAddr(&netaddr);
+           ipaddr = XrdSysDNS::IPAddr(&netaddr);
            myMans.Del(ipaddr);
            while((hP = hList.GetToken()))
                  myMans.Add(ipaddr, hP, Config.PortTCP, Lvl+1);
@@ -518,17 +517,12 @@ XrdCmsRouting *XrdCmsProtocol::Admit()
 // Make sure that our role is compatible with the incomming role
 //
    Reason = 0;
-   if (Config.asServer())       // We are a supervisor
-      {if (Config.asProxy() && (!isProxy || isPeer))
-          Reason = "configuration only allows proxies";
-          else if (!isServ)
-          Reason = "configuration disallows peers and proxies";
-      } else {                  // We are a manager
-       if (Config.asProxy() &&   isServ)
-          Reason = "configuration only allows peers or proxies";
-          else if (isProxy)
-          Reason = "configuration disallows proxies";
-      }
+        if (Config.asProxy()) {if (!isProxy || isPeer)
+                                  Reason = "configuration only allows proxies";
+                              }
+   else if (isProxy)              Reason = "configuration disallows proxies";
+   else if (Config.asServer() && isPeer)
+                                  Reason = "configuration disallows peers";
    if (Reason) return Login_Failed(Reason);
 
 // The server may specify nostage and suspend

@@ -11,6 +11,7 @@
 #####################################################
 # TARGETS
 bin_PROGRAMS = cmsd
+man8_MANS = ../../docs/man/cmsd.8 
 
 lib_LTLIBRARIES = libXrdCms.la
 
@@ -96,7 +97,7 @@ cmsd_SOURCES = \
 cmsd_LDADD = libXrdCmsConv.la \
              ../XrdNet/libXrdNet.la \
              ../XrdOss/libXrdOss.la \
-             ../XrdFrm/libXrdFrm.la \
+             ../XrdFrc/libXrdFrc.la \
              ../XrdOuc/libXrdOuc.la \
              ../XrdSys/libXrdSys.la \
              ../Xrd/libXrd.la \
