@@ -29,6 +29,9 @@
 #include <netinet/in.h>
 #include <sys/param.h>
 
+#include "XrdCks/XrdCks.hh"
+#include "XrdCks/XrdCksConfig.hh"
+
 #include "XrdOfs/XrdOfs.hh"
 #include "XrdOfs/XrdOfsEvs.hh"
 #include "XrdOfs/XrdOfsPoscq.hh"
@@ -81,7 +84,9 @@ extern XrdOss     *XrdOfsOss;
 /*                             C o n f i g u r e                              */
 /******************************************************************************/
   
-int XrdOfs::Configure(XrdSysError &Eroute) {
+int XrdOfs::Configure(XrdSysError &Eroute) {return Configure(Eroute, 0);}
+
+int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
 /*
   Function: Establish default values using a configuration file.
 
@@ -104,6 +109,10 @@ int XrdOfs::Configure(XrdSysError &Eroute) {
 //
    Options            = 0;
    if (getenv("XRDDEBUG")) OfsTrace.What = TRACE_MOST | TRACE_debug;
+
+// Allocate a checksum configurator at this point
+//
+   CksConfig = new XrdCksConfig(ConfigFN, &Eroute);
 
 // If there is no config file, return with the defaults sets.
 //
@@ -161,6 +170,7 @@ int XrdOfs::Configure(XrdSysError &Eroute) {
 
 // Configure the storage system at this point. This must be done prior to
 // configuring cluster processing. First check if we will be proxying.
+// If we are not proxying then we will initialize checksum processing.
 //
    if (Options & isProxy)
       {char buff[2048], *bp, *libofs = getenv("XRDOFSLIB");
@@ -184,7 +194,7 @@ int XrdOfs::Configure(XrdSysError &Eroute) {
 //
    if (Options & haveRole)
       {Eroute.Say("++++++ Configuring ", myRole, " role. . .");
-       NoGo |= ConfigRedir(Eroute);
+       NoGo |= ConfigRedir(Eroute, EnvInfo);
       }
 
 // Turn off forwarding if we are not a pure remote redirector or a peer
@@ -202,6 +212,13 @@ int XrdOfs::Configure(XrdSysError &Eroute) {
 // Now configure the storage system
 //
    if (!(XrdOfsOss = XrdOssGetSS(Eroute.logger(), ConfigFN, OssLib))) NoGo = 1;
+
+// Configure checksums if we are neither a proxy nor a manager
+//
+   if (!(Options & (isProxy | isManager))) 
+      NoGo |= (Cks = CksConfig->Configure(0, CksRdsz)) == 0;
+   delete CksConfig;
+   CksConfig = 0;
 
 // If we need to send notifications, initialize the interface
 //
@@ -420,7 +437,7 @@ int XrdOfs::ConfigPosc(XrdSysError &Eroute)
 /*                           C o n f i g R e d i r                            */
 /******************************************************************************/
   
-int XrdOfs::ConfigRedir(XrdSysError &Eroute) 
+int XrdOfs::ConfigRedir(XrdSysError &Eroute, XrdOucEnv *EnvInfo)
 {
    int isRedir = Options & isManager;
    int RMTopts = (Options & isServer ? XrdCms::IsTarget : 0)
@@ -432,7 +449,7 @@ int XrdOfs::ConfigRedir(XrdSysError &Eroute)
    if (isRedir) 
       {Finder = (XrdCmsClient *)new XrdCmsFinderRMT(Eroute.logger(),
                                                     RMTopts,myPort);
-       if (!Finder->Configure(ConfigFN))
+       if (!Finder->Configure(ConfigFN, EnvInfo))
           {delete Finder; Finder = 0; return 1;}
       }
 
@@ -451,7 +468,7 @@ int XrdOfs::ConfigRedir(XrdSysError &Eroute)
        Balancer = new XrdCmsFinderTRG(Eroute.logger(),
                          (Options & isProxy ? XrdCms::IsProxy : 0) |
                          (isRedir ? XrdCms::IsRedir : 0), myPort, 0);
-       if (!Balancer->Configure(ConfigFN))
+       if (!Balancer->Configure(ConfigFN, EnvInfo))
           {delete Balancer; Balancer = 0; return 1;}
        if (Options & isProxy) Balancer = 0; // No chatting for proxies
       }
@@ -474,6 +491,8 @@ int XrdOfs::ConfigXeq(char *var, XrdOucStream &Config,
     //
     TS_Bit("authorize",     Options, Authorize);
     TS_Xeq("authlib",       xalib);
+    TS_Xeq("ckslib",        xclib);
+    TS_Xeq("cksrdsz",       xcrds);
     TS_Xeq("forward",       xforward);
     TS_Xeq("maxdelay",      xmaxd);
     TS_Xeq("notify",        xnot);
@@ -534,6 +553,63 @@ int XrdOfs::xalib(XrdOucStream &Config, XrdSysError &Eroute)
    return 0;
 }
 
+/******************************************************************************/
+/*                                 x c l i b                                  */
+/******************************************************************************/
+  
+/* Function: xclib
+
+   Purpose:  To parse the directive: ckslib <digest> <path> [<parms>]
+
+             <digest>  the name of the checksum. The special name "*" is used
+                       load the checksum manager library.
+             <path>    the path of the checksum library to be used.
+             <parms>   optional parms to be passed
+
+  Output: 0 upon success or !0 upon failure.
+*/
+
+int XrdOfs::xclib(XrdOucStream &Config, XrdSysError &Eroute)
+{
+// Return the result
+//
+   return CksConfig->ParseLib(Config);
+}
+
+/******************************************************************************/
+/*                                 x c r d s                                  */
+/******************************************************************************/
+  
+/* Function: xcrds
+
+   Purpose:  To parse the directive: cksrdsz <size>
+
+             <size>  number of bytes to segment reads when calclulating a
+                     checksum. Can be suffixed by k,m,g. Maximum is 1g and
+                     is automatically set to be atleast 64k and to be a
+                     multiple of 64k.
+
+  Output: 0 upon success or !0 upon failure.
+*/
+
+int XrdOfs::xcrds(XrdOucStream &Config, XrdSysError &Eroute)
+{
+   static const long long maxRds = 1024*1024*1024;
+   char *val;
+   long long rdsz;
+
+// Get the size
+//
+   if (!(val = Config.GetWord()) || !val[0])
+      {Eroute.Emsg("Config", "cksrdsz size not specified"); return 1;}
+
+// Now convert it
+//
+   if (XrdOuca2x::a2sz(Eroute, "cksrdsz size", val, &rdsz, 1, maxRds)) return 1;
+   CksRdsz = rdsz;
+   return 0;
+}
+  
 /******************************************************************************/
 /*                              x f o r w a r d                               */
 /******************************************************************************/

@@ -20,6 +20,8 @@
 
 #include "XrdVersion.hh"
 
+#include "XProtocol/XProtocol.hh"
+
 #include "XrdSfs/XrdSfsInterface.hh"
 #include "XrdNet/XrdNetOpts.hh"
 #include "XrdNet/XrdNetSocket.hh"
@@ -86,8 +88,6 @@ extern          XrdOucTrace       *XrdXrootdTrace;
 
                 const char        *XrdXrootdInstance;
 
-                XrdInet           *XrdXrootdNetwork;
-
                 int                XrdXrootdPort;
 
 /******************************************************************************/
@@ -106,13 +106,16 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
    extern XrdSfsFileSystem *XrdSfsGetDefaultFileSystem
                             (XrdSfsFileSystem *nativeFS,
                              XrdSysLogger     *Logger,
-                             const char       *configFn);
-   extern XrdSecService    *XrdXrootdloadSecurity(XrdSysError *, char *, char *);
+                             const char       *configFn,
+                             XrdOucEnv        *EnvInfo);
+   extern XrdSecService    *XrdXrootdloadSecurity(XrdSysError *, char *, 
+                                                  char *, void **);
    extern XrdSfsFileSystem *XrdXrootdloadFileSystem(XrdSysError *, char *, 
                                                     const char *);
    extern int optind, opterr;
 
    XrdXrootdXPath *xp;
+   void *secGetProt = 0;
    char *adminp, *fsver, *rdf, *bP, *tmp, c, buff[1024];
    int i, n, deper = 0;
 
@@ -134,7 +137,6 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
 // Record globally accessible values
 //
    XrdXrootdInstance = pi->myInst;
-   XrdXrootdNetwork  = pi->NetTCP;
    XrdXrootdPort     = pi->Port;
 
 // Set the callback object static areas now!
@@ -213,7 +215,8 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
    if (!SecLib) eDest.Say("Config warning: 'xrootd.seclib' not specified;"
                           " strong authentication disabled!");
       else {TRACE(DEBUG, "Loading security library " <<SecLib);
-            if (!(CIA = XrdXrootdloadSecurity(&eDest, SecLib, pi->ConfigFN)))
+            if (!(CIA = XrdXrootdloadSecurity(&eDest, SecLib, pi->ConfigFN,
+                                              &secGetProt)))
                {eDest.Emsg("Config", "Unable to load security system.");
                 return 0;
                }
@@ -224,7 +227,12 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
    if (FSLib)
       {TRACE(DEBUG, "Loading filesystem library " <<FSLib);
        osFS = XrdXrootdloadFileSystem(&eDest, FSLib, pi->ConfigFN);
-      } else osFS = XrdSfsGetDefaultFileSystem(0, eDest.logger(), pi->ConfigFN);
+      } else {
+       XrdOucEnv myEnv;
+       myEnv.PutPtr("XrdInet*", (void *)(pi->NetTCP));
+       myEnv.PutPtr("XrdSecGetProtocol*", secGetProt);
+       osFS = XrdSfsGetDefaultFileSystem(0,eDest.logger(),pi->ConfigFN,&myEnv);
+      }
    if (!osFS)
       {eDest.Emsg("Config", "Unable to load file system.");
        return 0;
@@ -237,6 +245,17 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
        if (strcmp(XrdVERSION, fsver))
           eDest.Emsg("Config", "Warning! xrootd build version " XrdVERSION
                                "differs from file system version ", fsver);
+      }
+
+// Check if we are going to be processing checksums locally
+//
+   if (JobCKT)
+      {XrdOucErrInfo myError("Config");
+       JobQCS = (osFS->chksum(XrdSfsFileSystem::csSize,JobCKT,0,myError) ? 0:1);
+       if (!JobQCS && (JobLCL || !JobCKS))
+          {eDest.Emsg("Config", JobCKT, " checksum is not natively supported.");
+           return 0;
+          }
       }
 
 // Initialiaze for AIO
@@ -281,8 +300,15 @@ int XrdXrootdProtocol::Configure(char *parms, XrdProtocol_Config *pi)
 
 // Set the redirect flag if we are a pure redirector
 //
+   myRole = kXR_isServer; myRolf = kXR_DataServer;
    if ((rdf = getenv("XRDREDIRECT"))
-   && (!strcmp(rdf, "R") || !strcmp(rdf, "M"))) isRedir = *rdf;
+   && (!strcmp(rdf, "R") || !strcmp(rdf, "M")))
+      {isRedir = *rdf;
+       myRole = kXR_isManager; myRolf = kXR_LBalServer;
+       if (!strcmp(rdf, "M"))  myRole |=kXR_attrMeta;
+      } 
+   if (getenv("XRDREDPROXY"))  myRole |=kXR_attrProxy;
+   myRole = htonl(myRole); myRolf = htonl(myRolf);
 
 // Check if monitoring should be enabled
 //
@@ -517,11 +543,12 @@ int XrdXrootdProtocol::xasync(XrdOucStream &Config)
 
 /* Function: xcksum
 
-   Purpose:  To parse the directive: chksum [max <n>] <type> <path>
+   Purpose:  To parse the directive: chksum [max <n>] <type> [<path>]
 
              max       maximum number of simultaneous jobs
              <type>    algorithm of checksum (e.g., md5)
              <path>    the path of the program performing the checksum
+                       If no path is given, the checksum is local.
 
   Output: 0 upon success or !0 upon failure.
 */
@@ -529,6 +556,7 @@ int XrdXrootdProtocol::xasync(XrdOucStream &Config)
 int XrdXrootdProtocol::xcksum(XrdOucStream &Config)
 {
    static XrdOucProg *theProg = 0;
+   int (*Proc)(XrdOucStream *, char **, int) = 0;
    char *palg, prog[2048];
    int jmax = 4;
 
@@ -538,7 +566,7 @@ int XrdXrootdProtocol::xcksum(XrdOucStream &Config)
          {if (strcmp(palg, "max")) break;
           if (!(palg = Config.GetWord()))
              {eDest.Emsg("Config", "chksum max not specified"); return 1;}
-          if (XrdOuca2x::a2i(eDest, "chksum max", palg, &jmax, 1)) return 1;
+          if (XrdOuca2x::a2i(eDest, "chksum max", palg, &jmax, 0)) return 1;
          }
 
 // Verify we have an algoritm
@@ -548,19 +576,21 @@ int XrdXrootdProtocol::xcksum(XrdOucStream &Config)
    if (JobCKT) free(JobCKT);
    JobCKT = strdup(palg);
 
-// Verify that we have a program
+// Check if we have a program. If not, then this will be a local checksum and
+// the algorithm will be verified after we load the filesystem.
 //
    if (!Config.GetRest(prog, sizeof(prog)))
       {eDest.Emsg("Config", "cksum parameters too long"); return 1;}
-   if (*prog == '\0')
-      {eDest.Emsg("Config", "chksum program not specified"); return 1;}
+   if (*prog) JobLCL = 0;
+      else {  JobLCL = 1; Proc = &CheckSum; strcpy(prog, "chksum");}
 
 // Set up the program and job
 //
    if (!theProg) theProg = new XrdOucProg(0);
-   if (theProg->Setup(prog, &eDest)) return 1;
+   if (theProg->Setup(prog, &eDest, Proc)) return 1;
    if (JobCKS) delete JobCKS;
-   JobCKS = new XrdXrootdJob(Sched, theProg, "chksum", jmax);
+   if (jmax) JobCKS = new XrdXrootdJob(Sched, theProg, "chksum", jmax);
+      else   JobCKS = 0;
    return 0;
 }
   
@@ -705,15 +735,16 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
 
 /* Function: xmon
 
-   Purpose:  Parse directive: monitor [all] [auth] [mbuff <sz>]
+   Purpose:  Parse directive: monitor [all] [auth] [mbuff <sz>] [rbuff <sz>]
                                       [flush <sec>] [window <sec>]
                                       dest [Events] <host:port>
 
-   Events: [files] [info] [io] [stage] [user] <host:port>
+   Events: [files] [info] [io] [redir] [stage] [user] <host:port>
 
          all                enables monitoring for all connections.
          auth               add authentication information to "user".
-         mbuff  <sz>        size of message buffer.
+         mbuff  <sz>        size of message buffer for event trace monitoring.
+         rbuff  <sz>        size of message buffer for redirection monitoring.
          flush  <sec>       time (seconds, M, H) between auto flushes.
          window <sec>       time (seconds, M, H) between timing marks.
          dest               specified routing information. Up to two dests
@@ -721,6 +752,7 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
          files              only monitors file open/close events.
          info               monitors client appid and info requests.
          io                 monitors I/O requests, and files open/close events.
+         redir              monitors request redirections
          stage              monitors file stage operations
          user               monitors user login and disconnect events.
          <host:port>        where monitor records are to be sentvia UDP.
@@ -728,9 +760,14 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
    Output: 0 upon success or !0 upon failure. Ignored by master.
 */
 int XrdXrootdProtocol::xmon(XrdOucStream &Config)
-{   char  *val, *cp, *monDest[2] = {0, 0};
+{   static const char *mrMsg[] = {"monitor mbuff value not specified",
+                                  "monitor rbuff value not specified",
+                                  "monitor mbuff", "monitor rbuff"
+                                 };
+    char  *val, *cp, *monDest[2] = {0, 0};
     long long tempval;
-    int i, monFlush=0, monMBval=0, monWWval=0, xmode=0, monMode[2] = {0, 0};
+    int i, monFlush=0, monMBval=0, monRBval=0, monWWval=0, xmode=0;
+    int    monMode[2] = {0, 0}, mrType;
 
     while((val = Config.GetWord()))
 
@@ -745,14 +782,14 @@ int XrdXrootdProtocol::xmon(XrdOucStream &Config)
                  if (XrdOuca2x::a2tm(eDest,"monitor flush",val,
                                            &monFlush,1)) return 1;
                 }
-          else if (!strcmp("mbuff",val))
-                  {if (!(val = Config.GetWord()))
-                      {eDest.Emsg("Config", "monitor mbuff value not specified");
-                       return 1;
-                      }
-                   if (XrdOuca2x::a2sz(eDest,"monitor mbuff", val,
+          else if (!strcmp("mbuff",val) || !strcmp("rbuff",val))
+                  {mrType = (*val == 'r');
+                   if (!(val = Config.GetWord()))
+                      {eDest.Emsg("Config",  mrMsg[mrType]); return 1;}
+                   if (XrdOuca2x::a2sz(eDest,mrMsg[mrType+2], val,
                                              &tempval, 1024, 65536)) return 1;
-                    monMBval = static_cast<int>(tempval);
+                   if (mrType) monRBval = static_cast<int>(tempval);
+                      else     monMBval = static_cast<int>(tempval);
                   }
           else if (!strcmp("window", val))
                 {if (!(val = Config.GetWord()))
@@ -773,6 +810,7 @@ int XrdXrootdProtocol::xmon(XrdOucStream &Config)
                    if (!strcmp("files",val)) monMode[i] |=  XROOTD_MON_FILE;
               else if (!strcmp("info", val)) monMode[i] |=  XROOTD_MON_INFO;
               else if (!strcmp("io",   val)) monMode[i] |=  XROOTD_MON_IO;
+              else if (!strcmp("redir",val)) monMode[i] |=  XROOTD_MON_REDR;
               else if (!strcmp("stage",val)) monMode[i] |=  XROOTD_MON_STAGE;
               else if (!strcmp("user", val)) monMode[i] |=  XROOTD_MON_USER;
               else break;
@@ -815,7 +853,7 @@ int XrdXrootdProtocol::xmon(XrdOucStream &Config)
 
 // Set the monitor defaults
 //
-   XrdXrootdMonitor::Defaults(monMBval, monWWval, monFlush);
+   XrdXrootdMonitor::Defaults(monMBval, monRBval, monWWval, monFlush);
    if (monDest[0]) monMode[0] |= (monMode[0] ? xmode : XROOTD_MON_FILE|xmode);
    if (monDest[1]) monMode[1] |= (monMode[1] ? xmode : XROOTD_MON_FILE|xmode);
    XrdXrootdMonitor::Defaults(monDest[0],monMode[0],monDest[1],monMode[1]);

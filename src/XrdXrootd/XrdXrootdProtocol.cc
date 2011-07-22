@@ -14,6 +14,7 @@
 #include "Xrd/XrdBuffer.hh"
 #include "Xrd/XrdLink.hh"
 #include "XProtocol/XProtocol.hh"
+#include "XrdOuc/XrdOucStream.hh"
 #include "XrdSys/XrdSysTimer.hh"
 #include "XrdXrootd/XrdXrootdAio.hh"
 #include "XrdXrootd/XrdXrootdFile.hh"
@@ -56,6 +57,8 @@ int                   XrdXrootdProtocol::WANPort;
 int                   XrdXrootdProtocol::WANWindow;
 char                  XrdXrootdProtocol::isRedir = 0;
 char                  XrdXrootdProtocol::chkfsV  = 0;
+char                  XrdXrootdProtocol::JobLCL  = 0;
+char                  XrdXrootdProtocol::JobQCS  = 0;
 XrdNetSocket         *XrdXrootdProtocol::AdminSock= 0;
 
 int                   XrdXrootdProtocol::hcMax        = 28657; // const for now
@@ -80,6 +83,9 @@ int                   XrdXrootdProtocol::as_syncw     = 0;
 const char           *XrdXrootdProtocol::myInst  = 0;
 const char           *XrdXrootdProtocol::TraceID = "Protocol";
 int                   XrdXrootdProtocol::myPID = static_cast<int>(getpid());
+
+int                   XrdXrootdProtocol::myRole = 0;
+int                   XrdXrootdProtocol::myRolf = 0;
 
 struct XrdXrootdProtocol::RD_Table XrdXrootdProtocol::Route[RD_Num] = {{0,0}};
 
@@ -117,7 +123,7 @@ XrdProtocol *XrdgetProtocol(const char *pname, char *parms,
 // Put up the banner
 //
    pi->eDest->Say("Copr.  2007 Stanford University, xrootd version "
-                   XROOTD_VERSION " build "  XrdVERSION);
+                   kXR_PROTOCOLVSTRING " build "  XrdVERSION);
    pi->eDest->Say("++++++ xrootd protocol initialization started.");
 
 // Return the protocol object to be used if static init succeeds
@@ -200,8 +206,12 @@ XrdXrootdProtocol XrdXrootdProtocol::operator =(const XrdXrootdProtocol &rhs)
   
 XrdProtocol *XrdXrootdProtocol::Match(XrdLink *lp)
 {
-        struct ClientInitHandShake hsdata;
-        char  *hsbuff = (char *)&hsdata;
+static  const int hsSZ = sizeof(ClientInitHandShake);
+static  const int prSZ = sizeof(ClientProtocolRequest);
+static  const int hpSZ = hsSZ + prSZ;
+        char hsbuff[hpSZ];
+        struct ClientInitHandShake   *hsData = (ClientInitHandShake *)hsbuff;
+        struct ClientProtocolRequest *hsRqst = (ClientProtocolRequest *)(hsbuff + hsSZ);
 
 static  struct hs_response
                {kXR_unt16 streamid;
@@ -210,16 +220,16 @@ static  struct hs_response
                 kXR_int32 pval;
                 kXR_int32 styp;
                } hsresp={0, 0, htonl(8), // isRedir == 'M' -> MetaManager
-                         htonl(XROOTD_VERSBIN),
+                         htonl(kXR_PROTOCOLVERSION),
                          (isRedir ? htonl(kXR_LBalServer)
                                   : htonl(kXR_DataServer))};
 
 XrdXrootdProtocol *xp;
-int dlen;
+int dlen, rc;
 
 // Peek at the first 20 bytes of data
 //
-   if ((dlen = lp->Peek(hsbuff,sizeof(hsdata), hailWait)) != sizeof(hsdata))
+   if ((dlen = lp->Peek(hsbuff, hpSZ, hailWait)) < hsSZ)
       {if (dlen <= 0) lp->setEtext("handshake not received");
        return (XrdProtocol *)0;
       }
@@ -230,21 +240,44 @@ int dlen;
 
 // Verify that this is our protocol
 //
-   hsdata.fourth  = ntohl(hsdata.fourth);
-   hsdata.fifth   = ntohl(hsdata.fifth);
-   if (dlen != sizeof(hsdata) ||  hsdata.first || hsdata.second
-   || hsdata.third || hsdata.fourth != 4 || hsdata.fifth != ROOTD_PQ) return 0;
+   hsData->fourth  = ntohl(hsData->fourth);
+   hsData->fifth   = ntohl(hsData->fifth);
+   if (hsData->first || hsData->second || hsData->third
+   ||  hsData->fourth != 4 || hsData->fifth != ROOTD_PQ) return 0;
 
-// Respond to this request with the handshake response
+// Optimized clients using protocol 2.9.7 or above will piggy-back a protocol
+// request with the handshake. We optimize the response here as well.
 //
-   if (!lp->Send((char *)&hsresp, sizeof(hsresp)))
+   if (dlen != hpSZ||ntohs(hsRqst->requestid) != kXR_protocol||hsRqst->dlen)
+      {dlen = hsSZ;
+       rc = lp->Send((char *)&hsresp, sizeof(hsresp));
+      } else {
+        struct {struct ServerResponseHeader        Hdr;
+                struct ServerResponseBody_Protocol Rsp;
+               }                                   hsprot;
+        struct iovec iov[2] = {{(char *)&hsresp, sizeof(hsresp)},
+                               {(char *)&hsprot, sizeof(hsprot)}
+                              };
+        static const int rspLen = sizeof(hsresp)+sizeof(hsprot);
+        memcpy(&Request, hsRqst, sizeof(Request));
+        memcpy(hsprot.Hdr.streamid,hsRqst->streamid,sizeof(hsprot.Hdr.streamid));
+        hsprot.Hdr.status   = 0;
+        hsprot.Hdr.dlen     = htonl(sizeof(hsprot.Rsp));
+        hsprot.Rsp.pval     = htonl(kXR_PROTOCOLVERSION);
+        hsprot.Rsp.flags    = do_Protocol(1);
+        rc = lp->Send(iov, 2, rspLen);
+       }
+
+// Verify that our handshake response was actually sent
+//
+   if (!rc)
       {lp->setEtext("handshake failed");
        return (XrdProtocol *)0;
       }
 
 // We can now read all 20 bytes and discard them (no need to wait for it)
 //
-   if (lp->Recv(hsbuff, sizeof(hsdata)) != sizeof(hsdata))
+   if (lp->Recv(hsbuff, dlen) != dlen)
       {lp->setEtext("reread failed");
        return (XrdProtocol *)0;
       }
@@ -520,6 +553,33 @@ int XrdXrootdProtocol::Stats(char *buff, int blen, int do_sync)
 /*                       P r i v a t e   M e t h o d s                        */
 /******************************************************************************/
 /******************************************************************************/
+/*                              C h e c k S u m                               */
+/******************************************************************************/
+  
+int XrdXrootdProtocol::CheckSum(XrdOucStream *Stream, char **argv, int argc)
+{
+   XrdOucErrInfo myInfo("CheckSum");
+   int rc;
+
+// The arguments must have <name> <path> (i.e. argc >= 2)
+//
+   if (argc < 2)
+      {Stream->PutLine("Internal error; not enough checksum args!");
+       return 8;
+      }
+
+// Issue the checksum calculation (that's all we do here).
+//
+   rc = osFS->chksum(XrdSfsFileSystem::csCalc, JobCKT, argv[1], myInfo);
+
+// Return result regardless of what it is
+//
+   Stream->PutLine(myInfo.getErrText());
+   if (rc) SI->errorCnt++;
+   return rc;
+}
+
+/******************************************************************************/
 /*                               C l e a n u p                                */
 /******************************************************************************/
   
@@ -634,6 +694,7 @@ void XrdXrootdProtocol::Reset()
    AuthProt           = 0;
    mySID              = 0;
    CapVer             = 0;
+   clientPV           = 0;
    reTry              = 0;
    PathID             = 0;
    pioFree = pioFirst = pioLast = 0;

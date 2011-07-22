@@ -10,8 +10,6 @@
 /*              DE-AC03-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
 
-//         $Id$
-
 #include <string.h>
 #include <dirent.h>
 #include <sys/types.h>
@@ -141,6 +139,8 @@ char           viaDel;
 /******************************************************************************/
 
 class XrdAccAuthorize;
+class XrdCks;
+class XrdCksConfig;
 class XrdCmsClient;
 class XrdOfsPoscq;
   
@@ -161,6 +161,13 @@ public:
 
 // Other functions
 //
+        int            chksum(      csFunc            Func,
+                              const char             *csName,
+                              const char             *Path,
+                                    XrdOucErrInfo    &out_error,
+                              const XrdSecEntity     *client = 0,
+                              const char             *opaque = 0);
+
         int            chmod(const char             *Name,
                                    XrdSfsMode        Mode,
                                    XrdOucErrInfo    &out_error,
@@ -230,7 +237,9 @@ const   char          *getVersion();
                                 const char             *opaque = 0);
 // Management functions
 //
-virtual int            Configure(XrdSysError &);
+virtual int            Configure(XrdSysError &); // Backward Compatability
+
+virtual int            Configure(XrdSysError &, XrdOucEnv *);
 
         void           Config_Cluster(XrdOss *);
 
@@ -327,6 +336,10 @@ char             *poscLog;        //    -> Directory for posc recovery log
 int               poscHold;       //       Seconds to hold a forced close
 int               poscAuto;       //  1 -> Automatic persist on close
 
+XrdCksConfig     *CksConfig;      // Checksum configurator
+XrdCks           *Cks;            // Checksum manager
+int               CksRdsz;        // Checksum read size
+
 static XrdOfsHandle     *dummyHandle;
 XrdSysMutex              ocMutex; // Global mutex for open/close
 
@@ -344,7 +357,7 @@ XrdSysMutex              ocMutex; // Global mutex for open/close
 //
 int           ConfigDispFwd(char *buff, struct fwdOpt &Fwd);
 int           ConfigPosc(XrdSysError &Eroute);
-int           ConfigRedir(XrdSysError &Eroute);
+int           ConfigRedir(XrdSysError &Eroute, XrdOucEnv *EnvInfo);
 const char   *Fname(const char *);
 int           Forward(int &Result, XrdOucErrInfo &Resp, struct fwdOpt &Fwd,
                       const char *arg1=0, const char *arg2=0,
@@ -352,6 +365,8 @@ int           Forward(int &Result, XrdOucErrInfo &Resp, struct fwdOpt &Fwd,
 int           setupAuth(XrdSysError &);
 const char   *theRole(int opts);
 int           xalib(XrdOucStream &, XrdSysError &);
+int           xclib(XrdOucStream &, XrdSysError &);
+int           xcrds(XrdOucStream &, XrdSysError &);
 int           xforward(XrdOucStream &, XrdSysError &);
 int           xmaxd(XrdOucStream &, XrdSysError &);
 int           xnmsg(XrdOucStream &, XrdSysError &);

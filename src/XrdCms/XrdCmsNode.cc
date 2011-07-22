@@ -96,10 +96,13 @@ XrdCmsNode::XrdCmsNode(XrdLink *lnkp, int port,
     DiskNums =  0;
     DiskUtil =  0;
     Next     =  0;
-    RefA     =  0;
-    RefTotA  =  0;
+    RefW     =  0;
+    RefTotW  =  0;
     RefR     =  0;
     RefTotR  =  0;
+    Share    =  0;
+    Shrem    =  0;
+    Shrin    =  0;
     logload  =  Config.LogPerf;
     DropTime =  0;
     DropJob  =  0;
@@ -439,9 +442,17 @@ const char *XrdCmsNode::do_Load(XrdCmsRRData &Arg)
 //
    if (Config.LogPerf && !logload)
       {char buff[1024];
+       long long tRefs = Cluster.Refs();
+       long long nRefs = static_cast<long long>(RefTotW + RefTotR)*100;
+       long long sRefs = static_cast<long long>(Share) * Shrin * 100;
+       int myShr = (Share ? Share : 100);
+       if (tRefs) {nRefs /= tRefs; sRefs /= tRefs;}
+          else nRefs = sRefs = 0;
        snprintf(buff, sizeof(buff)-1,
-               "load=%d; cpu=%d net=%d inq=%d mem=%d pag=%d dsk=%d utl=%d",
-               myLoad, pcpu, pnet, pxeq, pmem, ppag, Arg.dskFree, pdsk);
+               "load=%d; cpu=%d net=%d inq=%d mem=%d pag=%d dsk=%d utl=%d "
+               "shr=[%d %lld %lld]",
+               myLoad, pcpu, pnet, pxeq, pmem, ppag, Arg.dskFree, pdsk,
+               myShr, nRefs, sRefs);
        Say.Emsg("Node", Name(), buff);
        logload = Config.LogPerf;
       } else logload--;
@@ -459,7 +470,7 @@ const char *XrdCmsNode::do_Load(XrdCmsRRData &Arg)
 const char *XrdCmsNode::do_Locate(XrdCmsRRData &Arg)
 {
    EPNAME("do_Locate";)
-   XrdCmsRRQInfo reqInfo(Instance, RSlot, Arg.Request.streamid);
+   XrdCmsRRQInfo reqInfo(Instance,RSlot,Arg.Request.streamid,Config.QryMinum);
    XrdCmsSelect    Sel(0, Arg.Path, Arg.PathLen-1);
    XrdCmsSelected *sP = 0;
    struct {kXR_unt32 Val; 
@@ -508,7 +519,7 @@ const char *XrdCmsNode::do_Locate(XrdCmsRRData &Arg)
 // List the servers
 //
    if (!rc)
-      {if (!Sel.Vec.hf || !(sP=Cluster.List(Sel.Vec.hf,XrdCmsCluster::LS_IPV6)))
+      {if (!Sel.Vec.hf || !(sP=Cluster.List(Sel.Vec.hf,XrdCmsCluster::LS_IPO)))
           {Arg.Request.rrCode = kYR_error;
            rc = kYR_ENOENT; Why = "none ";
            bytes = strlcpy(Resp.outbuff, "No servers have the file",
@@ -890,7 +901,7 @@ const char *XrdCmsNode::do_Rmdir(XrdCmsRRData &Arg)
 const char *XrdCmsNode::do_Select(XrdCmsRRData &Arg)
 {
    EPNAME("do_Select")
-   XrdCmsRRQInfo reqInfo(Instance, RSlot, Arg.Request.streamid);
+   XrdCmsRRQInfo reqInfo(Instance,RSlot,Arg.Request.streamid,Config.QryMinum);
    XrdCmsSelect Sel(XrdCmsSelect::Peers, Arg.Path, Arg.PathLen-1);
    struct iovec ioV[2];
    char theopts[16], *Avoid, *toP = theopts;
@@ -1124,7 +1135,7 @@ const char *XrdCmsNode::do_State(XrdCmsRRData &Arg)
 // ask the underlying filesystem whether it has the file.
 //
         if (isMan) Arg.Request.modifier = do_StateFWD(Arg);
-   else if (!Config.DiskOK) return 0;
+   else if (!Config.DiskOK && !Config.asProxy()) return 0;
    else if (baseFS.Limit() && Arg.Request.modifier&CmsStateRequest::kYR_metaman)
            {XrdCmsPInfo pinfo;
             pinfo.rovec = NodeMask;

@@ -11,6 +11,7 @@
 /******************************************************************************/
 
 #include <string.h>      // For strlcpy()
+#include <sys/errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>  // for sockaddr
@@ -147,6 +148,19 @@ virtual XrdSfsFile      *newFile(char *user=0) = 0;
 
 // The following are filesystem related methods
 //
+
+enum    csFunc {csCalc = 0, csGet, csSize};
+
+virtual int            chksum(      csFunc            Func,
+                              const char             *csName,
+                              const char             *Path,
+                                    XrdOucErrInfo    &out_error,
+                              const XrdSecEntity     *client = 0,
+                              const char             *opaque = 0)
+                              {out_error.setErrInfo(ENOTSUP, "Not supported.");
+                               return SFS_ERROR;
+                              }
+
 virtual int            chmod(const char             *Name,
                                    XrdSfsMode        Mode,
                                    XrdOucErrInfo    &out_error,
@@ -239,7 +253,14 @@ protected:
 
    This entry is called to get an instance of the file system. Return 0 if upon
    failure to properly create such an object. For statically linked file systems
-   the non-extern C XrdSfsGetDefaultFileSystem() is used instead.
+   the non-extern C XrdSfsGetDefaultFileSystem() is used instead. It has a
+   slightly different calling convention which adds an environment parameter
+   as follows:
+
+   XrdSfsFileSystem *XrdSfsGetDefaultFileSystem(XrdSfsFileSystem *nativeFS,
+                                                XrdSysLogger     *Logger,
+                                                const char       *configFn,
+                                                XrdOucEnv        *EnvInfo);
 */
 
 /******************************************************************************/

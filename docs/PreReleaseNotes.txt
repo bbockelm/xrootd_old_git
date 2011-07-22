@@ -3,6 +3,32 @@ Version 3.1.0
 -------------
 
 + **New Features**
+   * Allow pointers to be placed in the OucEnv environment table.
+   * Extend the kXR_protocol request to allow the server to return detailed
+     information about node's role. This is backwardly compatible.
+   * Set $HOST value for possible copycmd substitution.
+   * Phase 1 to allow for redirection monitoring. Add rbuff and redir options
+     to the xrootd.monitor directive.
+   * Add error, redirect, and delay counts to the xrootd protocol summary
+     statistics.
+   * Allow file additions/deletion to be communicated to the XrdCnsd so that is
+     can maintain an accurate inventory. This update adds the frm.all.cnsd
+     directive which specifies how the information is to be commuincated.
+   * Enable cmsd monitoring. For now, only [meta]manager information is reported.
+   * Add new repstats config directive to increase reporting detail.
+   * New class, XrdCmsRole, to make role naming/handling consistent.
+   * Implement the 'cms.delay qdn' directive which allows one to tell the
+     meta-manager the minimum number of responses needed to satisfy a hold
+     delay (i.e. fast redirect).
+   * Accept XrdSecSSSKT envar as documented but also continue to support
+     XrdSecsssKT for backward compatability.
+   * Allow servers to specify to the meta-manager what share of requests they
+     are willing to handle. Add the 'cms.sched gsdflt' and 'cms.sched gshr'
+     configuration directives to specify this.
+   * Include additional information in the protocol statistics.
+   * Resize some counters to prevent overflows.
+   * Add the 'cms.delay qdn' directive to allow better redirection control in
+     the future.
    * Allow a plugin (notably the proxy plugin) to disable async I/O.
    * Implement a general memory caching object. Currently, this will be used
      by the Posix object.
@@ -14,8 +40,33 @@ Version 3.1.0
      record (requested by Matevz Tadel, CMS). This adds a new generic option,
      auth, to the xrootd.monitor directive. It needs to be specified for the
      authentication information to be added. This keeps backward compatability.
+   * Add a new method, chksum, to the standard filesystem interface.
+   * Integrate checksums into the logical filesystem layer implementation.
+     See the ofs.ckslib directive on how to do non-default configuration.
+     This also added a more effecient lfn2pfn() method to the storage system.
+   * Allow native checksums to be enabled in the xrootd layer.
+     See the xrootd.chksum directive on how to do this.
+   * Add checksum management to the frm_admin command.
+   * Allow XrdOucProg to dispatch a local program as well as a process.
+   * Allow a line to be insrerted into an XrdOucStream managed stream.
+   * Implement native checksums usable stand-alone or as plugins. Three digests
+     are supported: adler32, crc32, and md5. An additional digest can be added
+     via a plugin. Also, the native digests can be over-ridden via a plugin.
+   * In XrdSecgsi, new interface for the authorization plug-in which has now full
+     access to the XrdSecEntity object, with the possibility to fill/modify all the
+     fields according to the proxy chain. The plug-in is now called at the end of
+     the all process, after a successful handshake and DN-username mapping.
+     Implementations must contain three extern C functions; see the dummy example
+     provided in src/XrdSecgsi/XrdSecgsiAuthzFunDN.cc. 
+     See also the header of XrdSecProtocolgsi::LoadAuthzFun.
+   * In XrdCryptosslgsiAux, add function to extract the VOMS attributes; can be
+     used in authz plug-ins.
+   * In XrdSecgsi, add possibility to extract the VOMS attributes and save them
+     in the XrdSecEntity. New switch '-vomsat:0/1 [1]'.
+   * In 'xrdgsiproxy info' show also the VOMS attributes, if present. 
 
 + **Major bug fixes**
+   * Avoid stage failures when target file exists in purgeable or writable space.
    * Fix incorrect lock handling for multiple waiters.
 
 + **Minor bug fixes**
@@ -26,6 +77,11 @@ Version 3.1.0
      writing an ofs plugin easier.
 
 + **Miscellaneous**
+   * Remove back references to symbols defined in XrdXrootd package used by
+     the cms client to allow for clean shared library builds.
+   * Remove externs to XrdSecGetProtocol and XrdSecGetService from
+     XrdSecInterface.hh to avoid having undefined references just because the
+     include file was included somewhere.
    * Rename XrdNetDNS to XrdSysDNS to avoid cross-dependencies. This means that all
      plug-in developers will need to do the same as XrdNetDNS no longer exists.
    * Split XrdFrm into XrdFrm and XrdFrc. This prevents cross-dependencies in

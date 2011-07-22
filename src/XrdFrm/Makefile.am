@@ -30,6 +30,7 @@ man8_MANS = ../../docs/man/frm_admin.8  ../../docs/man/frm_purged.8 \
             ../../docs/man/frm_xfragent.8 ../../docs/man/frm_xfrd.8
 
 noinst_HEADERS = XrdFrmAdmin.hh   \
+                       XrdFrmCns.hh     \
                        XrdFrmConfig.hh  \
                        XrdFrmFiles.hh   \
                        XrdFrmMigrate.hh \
@@ -54,7 +55,9 @@ noinst_LTLIBRARIES = libXrdFrmConv.la libXrdFrmConvAgent.la
 ## Build rules
 
 
-libXrdFrmConv_la_SOURCES = XrdFrmConfig.cc
+libXrdFrmConv_la_SOURCES = \
+                 XrdFrmCns.cc    \
+                 XrdFrmConfig.cc
 
 libXrdFrmConvAgent_la_SOURCES = XrdFrmReqBoss.cc   \
               XrdFrmTransfer.cc \
@@ -75,6 +78,7 @@ libXrdFrm_la_LIBADD = \
                   ../XrdSys/libXrdSys.la     \
                   ../XrdOss/libXrdOss.la \
                   ../XrdFrc/libXrdFrc.la \
+                  ../XrdCks/libXrdCks.la \
                   ../Xrd/libXrd.la $(READLINE_LIBDIR) $(READLINE_LIBS)
 
 libXrdFrm_la_LDFLAGS = -static
@@ -95,7 +99,8 @@ frm_admin_SOURCES = \
 frm_admin_LDADD = ../XrdOss/libXrdOss.la \
                   ../XrdFrc/libXrdFrc.la \
                   libXrdFrmConv.la \
-                  libXrdFrm.la
+                  libXrdFrm.la \
+                  ../XrdCks/libXrdCks.la
 
 frm_admin_LDFLAGS = -static -export-dynamic -ldl
 
@@ -107,6 +112,7 @@ frm_purged_SOURCES = \
 
 frm_purged_LDADD = libXrdFrmConv.la \
                    libXrdFrm.la \
+                   ../XrdCks/libXrdCks.la \
                    ../XrdOuc/libXrdOuc.la   ../XrdFrc/XrdFrcProxy.o
 
 frm_purged_LDFLAGS = -static -export-dynamic -ldl
@@ -120,6 +126,7 @@ frm_xfragent_SOURCES = XrdFrmXfrMain.cc
 frm_xfragent_LDADD = libXrdFrmConv.la \
                      libXrdFrmConvAgent.la \
                      libXrdFrm.la \
+                     ../XrdCks/libXrdCks.la \
                    ../XrdOuc/libXrdOuc.la   ../XrdFrc/XrdFrcProxy.o
 
 frm_xfragent_LDFLAGS = -static -export-dynamic -ldl
@@ -130,6 +137,7 @@ frm_xfrd_SOURCES = XrdFrmXfrMain.cc
 frm_xfrd_LDADD =     libXrdFrmConv.la \
                      libXrdFrmConvAgent.la \
                      libXrdFrm.la \
+                     ../XrdCks/libXrdCks.la \
                    ../XrdOuc/libXrdOuc.la   ../XrdFrc/XrdFrcProxy.o
 
 frm_xfrd_LDFLAGS = -static -export-dynamic -ldl

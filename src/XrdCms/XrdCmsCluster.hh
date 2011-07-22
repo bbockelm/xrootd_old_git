@@ -113,8 +113,7 @@ SMask_t         getMask(const char *Cid);
 
 // Extracts out node information. Opts are one or more of CmsLSOpts
 //
-enum            CmsLSOpts {LS_Best = 0x0001, LS_All  = 0x0002,
-                           LS_IPO  = 0x0004, LS_IPV6 = 0x0008};
+enum            CmsLSOpts {LS_All = 0x0001, LS_IPO  = 0x0002};
 
 XrdCmsSelected *List(SMask_t mask, CmsLSOpts opts);
 
@@ -130,6 +129,10 @@ void           *MonPerf();
 //
 void           *MonRefs();
 
+// Return total number of redirect references (sloppy as we don't lock it)
+//
+long long       Refs() {return SelWcnt+SelWtot+SelRcnt+SelRtot;}
+
 // Called to remove a node from the cluster
 //
 void            Remove(const char *reason, XrdCmsNode *theNode, int immed=0);
@@ -142,16 +145,17 @@ void            ResetRef(SMask_t smask);
 //
 int             Select(XrdCmsSelect &Sel);
 
-int             Select(int isrw, SMask_t pmask, int &port, 
+int             Select(int isrw, int isMulti, SMask_t pmask, int &port,
                        char *hbuff, int &hlen);
 
 // Called to get cluster space (for managers and supervisors only)
 //
 void            Space(XrdCms::SpaceData &sData, SMask_t smask);
 
-// Called to returns statistics (not really implemented)
+// Called to return statistics
 //
-int             Stats(char *bfr, int bln);
+int             Stats(char *bfr, int bln); // Server
+int             Statt(char *bfr, int bln); // Manager
 
                 XrdCmsCluster();
                ~XrdCmsCluster() {} // This object should never be deleted
@@ -174,7 +178,6 @@ int         SelDFS(XrdCmsSelect &Sel, SMask_t amask,
 void        sendAList(XrdLink *lp);
 void        setAltMan(int snum, unsigned int ipaddr, int port);
 
-
 static const  int AltSize = 24; // Number of IP:Port characters per entry
 
 XrdSysMutex   cidMutex;         // Protects to cid list
@@ -185,9 +188,12 @@ XrdSysMutex   STMutex;          // Protects all node information  variables
 XrdCmsNode   *NodeTab[STMax];   // Current  set of nodes
 
 int           STHi;             // NodeTab high watermark
-int           SelAcnt;          // Total number of r/w selections
-int           SelRcnt;          // Total number of r/o selections
 int           doReset;          // Must send reset event to Managers[resetMask]
+long long     SelWcnt;          // Curr  number of r/w selections (successful)
+long long     SelWtot;          // Total number of r/w selections (successful)
+long long     SelRcnt;          // Curr  number of r/o selections (successful)
+long long     SelRtot;          // Total number of r/o selections (successful)
+long long     SelTcnt;          // Total number of all selections
 
 // The following is a list of IP:Port tokens that identify supervisor nodes.
 // The information is sent via the try request to redirect nodes; as needed.

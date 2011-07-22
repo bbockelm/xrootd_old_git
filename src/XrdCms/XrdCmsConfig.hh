@@ -41,6 +41,7 @@ int   ConfigXeq(char *var, XrdOucStream &CFile, XrdSysError *eDest);
 void  DoIt();
 int   GenLocalPath(const char *oldp, char *newp);
 int   asManager() {return isManager;}
+int   asMetaMan() {return isManager && isMeta;}
 int   asPeer()    {return isPeer;}
 int   asProxy()   {return isProxy;}
 int   asServer()  {return isServer;}
@@ -52,6 +53,7 @@ int         DRPDelay;     // Maximum delay for dropping an offline server
 int         PSDelay;      // Maximum delay time before peer is selected
 int         RWDelay;      // R/W lookup delay handling (0 | 1 | 2)
 int         QryDelay;     // Query Response Deadline
+int         QryMinum;     // Query Response Deadline Minimum Available
 int         SRVDelay;     // Minimum delay at startup
 int         SUPCount;     // Minimum server count
 int         SUPLevel;     // Minimum server count as floating percentage
@@ -72,6 +74,8 @@ XrdInet    *NetTCP;       // -> Network Object
 int         P_cpu;        // % CPU Capacity in load factor
 int         P_dsk;        // % DSK Capacity in load factor
 int         P_fuzz;       // %     Capacity to fuzz when comparing
+int         P_gsdf;       // %     Global share default (0 -> no default)
+int         P_gshr;       // %     Global share of requests allowed
 int         P_io;         // % I/O Capacity in load factor
 int         P_load;       // % MSC Capacity in load factor
 int         P_mem;        // % MEM Capacity in load factor
@@ -100,6 +104,11 @@ char        *N2N_Parms;   // Server Only
 char        *LocalRoot;   // Server Only
 char        *RemotRoot;   // Manager
 char        *myPaths;     // Exported paths
+short        RepStats;    // Statistics to report (see RepStat_xxx below)
+char         Rsvc;
+char         myRoleID;
+char         myRType[4];
+char        *myRole;
 const char  *myProg;
 const char  *myName;
 const char  *myDomain;
@@ -129,6 +138,12 @@ struct sockaddr    myAddr;
 
       XrdCmsConfig() : XrdJob("cmsd startup") {ConfigDefaults();}
      ~XrdCmsConfig() {}
+
+// RepStats value via 'cms.repstats" directive
+//
+static const int RepStat_frq    = 0x0001; // Fast Response Queue
+static const int RepStat_shr    = 0x0002; // Share
+static const int RepStat_All    = 0xffff; // All
 
 private:
 
@@ -162,6 +177,7 @@ int  xpidf(XrdSysError *edest, XrdOucStream &CFile);
 int  xping(XrdSysError *edest, XrdOucStream &CFile);
 int  xprep(XrdSysError *edest, XrdOucStream &CFile);
 int  xprepm(XrdSysError *edest, XrdOucStream &CFile);
+int  xreps(XrdSysError *edest, XrdOucStream &CFile);
 int  xrmtrt(XrdSysError *edest, XrdOucStream &CFile);
 int  xrole(XrdSysError *edest, XrdOucStream &CFile);
 int  xsched(XrdSysError *edest, XrdOucStream &CFile);
@@ -186,7 +202,6 @@ int               isPeer;
 int               isProxy;
 int               isServer;
 int               isSolo;
-char             *myRole;
 char             *perfpgm;
 int               perfint;
 int               cachelife;

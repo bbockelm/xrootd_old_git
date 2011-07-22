@@ -45,7 +45,8 @@ public:
        char   isConn;       //2 Set when node is network connected
        char   isGone;       //3 Set when node must be deleted
        char   isPerm;       //4 Set when node is permanently bound
-       char   isReserved[3];
+       char   isReserved[2];
+       char   RoleID;       // The converted XrdCmsRole::RoleID
 
 static const char allowsRW = 0x01; // in isRW -> Server allows r/w access
 static const char allowsSS = 0x02; // in isRW -> Server can stage data
@@ -120,6 +121,11 @@ inline int   Send(const struct iovec *iov, int iovcnt, int iotot=0)
 
        void  setName(XrdLink *lnkp, int port);
 
+       void  setShare(int shrval)
+                     {if (shrval > 99) Shrem = Shrip = Share = 0;
+                         else {Shrem = Share = shrval; Shrip = 100 - shrval;}
+                     }
+
 inline void  setSlot(short rslot) {RSlot = rslot;}
 inline short getSlot() {return RSlot;}
 
@@ -162,13 +168,17 @@ int                logload;
 int                myCost;       // Overall cost (determined by location)
 int                myLoad;       // Overall load
 int                myMass;       // Overall load including space utilization
-int                RefA;         // Number of times used for allocation
-int                RefTotA;
+int                RefW;         // Number of times used for writing
+int                RefTotW;
 int                RefR;         // Number of times used for redirection
 int                RefTotR;
 short              RSlot;
 char               isLocked;
-char               RSVD;
+char               Share;        // Share of requests for this node (0 -> n/a)
+char               Shrem;        // Share of requests left
+char               Shrip;        // Share of requests to skip
+char               Rsvd[2];
+int                Shrin;        // Share intervals used
 
 // The following fields are used to keep the supervisor's free space value
 //

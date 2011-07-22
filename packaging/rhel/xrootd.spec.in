@@ -53,6 +53,7 @@ Fuse driver for xrootd
 Summary: XRootD server
 Group:   System Environment/Daemons
 Requires: %{name}-libs = %{epoch}:%{version}-%{release}, %{name}-client = %{epoch}:%{version}-%{release}
+Obsoletes: xrootd
 %description server
 XRootD server
 
@@ -64,6 +65,7 @@ Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: %{name}-client = %{epoch}:%{version}-%{release}
 Requires: %{name}-libs-devel = %{epoch}:%{version}-%{release}
 Requires: %{name}-client-devel = %{epoch}:%{version}-%{release}
+Obsoletes: xrootd-devel
 %description server-devel
 Headers for compiling against xrootd-server
 
@@ -192,6 +194,7 @@ exit 0
 %{_libdir}/libXrdNet*.so*
 %{_libdir}/libXrdOuc.so*
 %{_libdir}/libXrdSys.so*
+%{_libdir}/libXrdCks.so*
 
 %files libs-devel
 %defattr(-,root,root,-)
@@ -203,6 +206,7 @@ exit 0
 %{_includedir}/%{name}/XrdNet
 %{_includedir}/%{name}/XrdOuc
 %{_includedir}/%{name}/XrdSys
+%{_includedir}/%{name}/XrdCks
 
 %files client
 %defattr(-,root,root,-)
@@ -234,6 +238,13 @@ exit 0
 %{_bindir}/xrootdfs
 %doc %{_mandir}/man1/xrootdfs.1.gz
 
+%if %{?_with_xrootd_user:1}%{!?_with_xrootd_user:0}
+%attr(-,xrootd,xrootd) %dir %{_sysconfdir}/%{name}/
+%else
+%attr(-,daemon,daemon) %dir %{_sysconfdir}/%{name}/
+%endif
+
+
 %files server
 %defattr(-,root,root,-)
 %{_bindir}/cconfig
@@ -260,17 +271,17 @@ exit 0
 %{_libdir}/libXrd.so*
 %doc %{_mandir}/man8
 
+%config(noreplace) %{_sysconfdir}/sysconfig/%{name}
+
 %if %{?_with_xrootd_user:1}%{!?_with_xrootd_user:0}
 %attr(-,xrootd,xrootd) %config(noreplace) %{_sysconfdir}/%{name}/xrootd-clustered.cfg
 %attr(-,xrootd,xrootd) %config(noreplace) %{_sysconfdir}/%{name}/xrootd-standalone.cfg
-%attr(-,xrootd,xrootd) %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %attr(-,xrootd,xrootd) %dir %{_var}/log/%{name}
 %attr(-,xrootd,xrootd) %dir %{_var}/run/%{name}
 %attr(-,xrootd,xrootd) %dir %{_var}/spool/%{name}
 %else
-%attr(-,daemon,daemon) %config(noreplace) %{_sysconfdir}/%{name}/xrootd-clustered.cfg
-%attr(-,daemon,daemon) %config(noreplace) %{_sysconfdir}/%{name}/xrootd-standalone.cfg
-%attr(-,daemon,daemon) %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
+%config(noreplace) %{_sysconfdir}/%{name}/xrootd-clustered.cfg
+%config(noreplace) %{_sysconfdir}/%{name}/xrootd-standalone.cfg
 %attr(-,daemon,daemon) %dir %{_var}/log/%{name}
 %attr(-,daemon,daemon) %dir %{_var}/run/%{name}
 %attr(-,daemon,daemon) %dir %{_var}/spool/%{name}

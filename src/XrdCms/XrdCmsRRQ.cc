@@ -8,12 +8,7 @@
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
 
-//         $Id$
-
-// Original Version: 1.6 2007/07/31 02:25:16 abh
-
-const char *XrdCmsRRQCVSID = "$Id$";
-
+#include <string.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <inttypes.h>
@@ -71,7 +66,7 @@ short XrdCmsRRQ::Add(short Snum, XrdCmsRRQInfo *Info)
 // If a slot number given, check if it's the right slot and it is still queued.
 // If so, piggy-back this request to existing one and make a fast exit
 //
-   myMutex.Lock();
+   myMutex.Lock(); Stats.Add2Q++;
    if (Snum && Slot[Snum].Info.Key == Info->Key && Slot[Snum].Expire)
       {if (Info->isLU)
           {sp->LkUp = Slot[Snum].LkUp;
@@ -80,6 +75,7 @@ short XrdCmsRRQ::Add(short Snum, XrdCmsRRQInfo *Info)
            sp->Cont = Slot[Snum].Cont;
            Slot[Snum].Cont = sp;
           }
+       Stats.PBack++;
        myMutex.UnLock();
        return Snum;
       }
@@ -115,6 +111,7 @@ int XrdCmsRRQ::Init(int Tint, int Tdly)
 //
    if (Tint) Tslice = Tint;
    if (Tdly) Tdelay = Tdly;
+   memset(&Stats, 0, sizeof(Stats));
 
 // Fill out the response structure
 //
@@ -177,7 +174,7 @@ int XrdCmsRRQ::Init(int Tint, int Tdly)
 /*                                 R e a d y                                  */
 /******************************************************************************/
   
-void XrdCmsRRQ::Ready(int Snum, const void *Key, SMask_t mask1, SMask_t mask2)
+int XrdCmsRRQ::Ready(int Snum, const void *Key, SMask_t mask1, SMask_t mask2)
 {
 // EPNAME("RRQ Ready");
    XrdCmsRRQSlot *sp;
@@ -189,17 +186,32 @@ void XrdCmsRRQ::Ready(int Snum, const void *Key, SMask_t mask1, SMask_t mask2)
    if (sp->Info.Key != Key || !sp->Expire)
       {myMutex.UnLock();
 //     DEBUG("slot " <<Snum <<" no longer valid");
-       return;
+       return 1;
+      }
+
+// Update the arguments. The first is the running node mask and the second is
+// a fixed differentiation mask. Accumulate the 1st but replace the 2nd.
+//
+   sp->Arg1 |= mask1; sp->Arg2 = mask2;
+   Stats.Resp++;
+
+// Check if we should still hold on to this slot because the number of actual
+// responders is less than the number needed.
+//
+   if (sp->Info.actR < sp->Info.minR)
+      {sp->Info.actR++; Stats.Multi++;
+       myMutex.UnLock();
+       return 0;
       }
 
 // Move the element from the waiting queue to the ready queue
 //
    sp->Link.Remove();
    if (readyQ.Singleton()) isReady.Post();
-   sp->Arg1 = mask1; sp->Arg2 = mask2;
    readyQ.Prev()->Insert(&sp->Link);
    myMutex.UnLock();
 // DEBUG("readied slot " <<Snum <<" mask " <<mask);
+   return 1;
 }
 
 /******************************************************************************/
@@ -211,13 +223,17 @@ void *XrdCmsRRQ::Respond()
 // EPNAME("RRQ Respond");
    static const int ovhd = sizeof(kXR_unt32);
    XrdCmsRRQSlot *lupQ, *sp, *cp;
-   int doredir, port, hlen;
+   int rdFast = 0, rdSlow = 0, luFast = 0, luSlow = 0;
+   int n, doredir, port, hlen;
 
 // In an endless loop, process all ready elements
 //
    do {isReady.Wait();     // DEBUG("responder awoken");
    do {myMutex.Lock();
        lupQ = 0;
+       Stats.rdFast += rdFast; Stats.rdSlow += rdSlow;
+       Stats.luFast += luFast; Stats.luSlow += luSlow;
+       rdFast = rdSlow = luFast = luSlow = 0;
        if (readyQ.Singleton()) {myMutex.UnLock(); break;}
        sp = readyQ.Next()->Item(); sp->Link.Remove(); sp->Expire = 0;
        myMutex.UnLock();
@@ -225,21 +241,26 @@ void *XrdCmsRRQ::Respond()
                            if (!(sp = sp->Cont)) break;
                            sp->Arg1 = lupQ->Arg1; sp->Arg2 = lupQ->Arg2;
                           } else lupQ = sp->LkUp;
-       if ((doredir = (sp->Arg1 && Cluster.Select(sp->Info.isRW, sp->Arg1,
-                                                 port, hostbuff, hlen))))
+       if ((doredir = (sp->Arg1 && Cluster.Select(sp->Info.isRW, sp->Info.actR,
+                                                  sp->Arg1,
+                                                  port, hostbuff, hlen))))
           {redrResp.Val = htonl(port);
            redrResp.Hdr.datalen = htons(static_cast<unsigned short>(hlen+ovhd));
            redr_iov[1].iov_len  = hlen;
            hlen += ovhd + sizeof(redrResp.Hdr);
           }
-       sendResponse(&sp->Info, doredir, hlen);
+       sendResponse(&sp->Info, doredir, hlen); n = 1;
        cp = sp->Cont;
-       while(cp) {sendResponse(&cp->Info, doredir, hlen); cp = cp->Cont;}
+       while(cp) {sendResponse(&cp->Info, doredir, hlen); n++; cp = cp->Cont;}
        sp->Recycle();
+       if (doredir) rdFast = n;
+          else      rdSlow = n;
       } while(1);
        if (lupQ) {lupQ->Cont = lupQ->LkUp;
-                  sendLocResp(lupQ);
+                  n = sendLocResp(lupQ);
                   lupQ->Recycle();
+                  if (n > 0) luFast =  n;
+                     else    luSlow = -n;
                  }
       } while(1);
 
@@ -252,27 +273,27 @@ void *XrdCmsRRQ::Respond()
 /*                           s e n d L o c R e s p                            */
 /******************************************************************************/
   
-void XrdCmsRRQ::sendLocResp(XrdCmsRRQSlot *lP)
+int XrdCmsRRQ::sendLocResp(XrdCmsRRQSlot *lP)
 {
    static const int ovhd = sizeof(kXR_unt32);
    XrdCmsSelected *sP;
    XrdCmsNode *nP;
-   int bytes;
+   int bytes, n = 0;
 
 // Send a delay if we timed out
 //
    if (!(lP->Arg1))
-      {do {sendResponse(&lP->Info, 0); lP = lP->Cont;} while(lP);
-       return;
+      {do {sendResponse(&lP->Info, 0); n++; lP = lP->Cont;} while(lP);
+       return -n;
       }
 
 // Get the list of servers that have this file. If none found, then force the
 // client to wait as this should never happen and the long path is called for.
 //
-   if (!(sP = Cluster.List(lP->Arg1, XrdCmsCluster::LS_IPV6))
+   if (!(sP = Cluster.List(lP->Arg1, XrdCmsCluster::LS_IPO))
    || (!(bytes = XrdCmsNode::do_LocFmt(databuff,sP,lP->Arg2,lP->Info.rwVec))))
-      {while(lP) {sendResponse(&lP->Info, 0); lP = lP->Cont;}
-       return;
+      {while(lP) {sendResponse(&lP->Info, 0); n++; lP = lP->Cont;}
+       return -n;
       }
 
 // Complete the I/O vector
@@ -292,8 +313,9 @@ void XrdCmsRRQ::sendLocResp(XrdCmsRRQSlot *lP)
              nP->Send(data_iov, iov_cnt, bytes);
             }
          RTable.UnLock();
-         lP = lP->Cont;
+         lP = lP->Cont; n++;
         }
+   return n;
 }
 
 /******************************************************************************/
@@ -331,7 +353,10 @@ void *XrdCmsRRQ::TimeOut()
 // EPNAME("RRQ TimeOut");
    XrdCmsRRQSlot *sp;
 
-// We measure millisecond intervals to timeout waiting requests
+// We measure millisecond intervals to timeout waiting requests. We used to zero
+// out arg1/2 to force expiration, but they would be zero anyway if no responses
+// occurred. Now with qdn we need to leave them alone as we may have defered
+// a fast dispatch because we were waiting for more than one responder.
 //
    while(1)
         {isWaiting.Wait();
@@ -344,7 +369,7 @@ void *XrdCmsRRQ::TimeOut()
                while((sp=waitQ.Next()->Item()) && sp->Expire < myClock)
                     {sp->Link.Remove();
                      if (readyQ.Singleton()) isReady.Post();
-                     sp->Arg1 = 0; sp->Arg2 = 0;
+//                   sp->Arg1 = 0; sp->Arg2 = 0;
 //                   DEBUG("expired slot " <<sp->slotNum);
                      readyQ.Prev()->Insert(&sp->Link);
                     }
