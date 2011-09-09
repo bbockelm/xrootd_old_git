@@ -19,6 +19,7 @@
 #include "XrdClient/XrdClientPhyConnection.hh"
 #include "XrdClient/XrdClientProtocol.hh"
 
+#include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucErrInfo.hh"
 #include "XrdSec/XrdSecInterface.hh"
 #include "XrdSys/XrdSysDNS.hh"
@@ -29,6 +30,7 @@
 #include "XrdClient/XrdClientSid.hh"
 
 #include "XrdSys/XrdSysPriv.hh"
+#include "XrdSys/XrdSysPlatform.hh"
 
 // Dynamic libs
 // Bypass Solaris ELF madness
@@ -131,7 +133,10 @@ XrdClientConn::XrdClientConn(): fOpenError((XErrorCode)0), fUrl(""),
 				fMainReadCache(0),
 				fREQWaitRespData(0),
 				fREQWaitTimeLimit(0),
-				fREQConnectWaitTimeLimit(0) {
+                                fREQConnectWaitTimeLimit(0),
+                                fMetaUrl( 0 ),
+                                fLBSIsMeta( false )
+{
     // Constructor
     ClearLastServerError();
     memset(&LastServerResp, 0, sizeof(LastServerResp));
@@ -1237,6 +1242,17 @@ bool XrdClientConn::GetAccessToSrv()
 
 	break;
 
+    case kSTMetaXrootd:
+
+        Info(XrdClientDebug::kHIDEBUG,
+             "GetAccessToSrv",
+             "Ok: the server on [" <<
+             fUrl.Host << ":" << fUrl.Port << "] is an xrootd meta manager.");
+
+        logconn->GetPhyConnection()->SetTTL(EnvGetLong(NAME_LBSERVERCONN_TTL));
+
+        break;
+
     case kSTDataXrootd: 
 
 	Info( XrdClientDebug::kHIDEBUG,
@@ -1306,84 +1322,67 @@ ERemoteServerType XrdClientConn::DoHandShake(short int log) {
 
     if (!phyconn || !phyconn->IsValid()) return kSTError;
 
-
     {
       XrdClientPhyConnLocker pl(phyconn);
 
-      if (phyconn->fServerType == kSTBaseXrootd) {
+      if( phyconn->fServerType != kSTNone )
+        type = phyconn->fServerType;
+      else
+        type = phyconn->DoHandShake( xbody );
 
-	Info(XrdClientDebug::kUSERDEBUG,
-	     "DoHandShake",
-	     "The physical channel is already bound to a load balancer"
-	     " server [" <<
-	     fUrl.Host << ":" << fUrl.Port << "]. No handshake is needed.");
-
-	fServerProto = phyconn->fServerProto;
-
-	if (!fLBSUrl || (fLBSUrl->Host == "")) {
-
-	  Info(XrdClientDebug::kHIDEBUG,
-	       "DoHandShake", "Setting Load Balancer Server Url = " <<
-	       fUrl.GetUrl() );
-
-	  // Save the url of load balancer server for future uses...
-	  fLBSUrl = new XrdClientUrlInfo(fUrl.GetUrl());
-	  if(!fLBSUrl) {
-	    Error("DoHandShake","Object creation "
-		  " failed. Probable system resources exhausted.");
-	    abort();
-	  }
-	}
-	return kSTBaseXrootd;
-      }
-
-
-      if (phyconn->fServerType == kSTDataXrootd) {
-
-	if (DebugLevel() >= XrdClientDebug::kHIDEBUG)
-	  Info(XrdClientDebug::kHIDEBUG,
-	       "DoHandShake",
-	       "The physical channel is already bound to the data server"
-	       " [" << fUrl.Host << ":" << fUrl.Port << "]. No handshake is needed.");
-
-	fServerProto = phyconn->fServerProto;
-
-	return kSTDataXrootd;
-      }
-
-
-      type = phyconn->DoHandShake(xbody);
       if (type == kSTError) return type;
-
 
       // Check if the server is the eXtended rootd or not, checking the value 
       // of type
-      fServerProto = xbody.protover;
+      fServerProto = phyconn->fServerProto;
 
-      // This is useful for other streams trying to use the same phyconn
-      // they will be able to get the proto version
-      phyconn->fServerProto = fServerProto;
+      //------------------------------------------------------------------------
+      // Handle a redirector - we always remember the first manager (redirector)
+      // encountered
+      //------------------------------------------------------------------------
+      if( type == kSTBaseXrootd )
+      {
+        if( !fLBSUrl || fLBSIsMeta )
+        {
+          delete fLBSUrl;
+          fLBSIsMeta = false;
 
-      if (type == kSTBaseXrootd) {
-	// This is a load balancing server
-	if (!fLBSUrl || (fLBSUrl->Host == "")) {
+          Info( XrdClientDebug::kHIDEBUG, "DoHandShake",
+                "Setting Load Balancer Server Url = " << fUrl.GetUrl() );
 
-	  Info(XrdClientDebug::kHIDEBUG, "DoHandShake", "Setting Load Balancer Server Url = " <<
-	       fUrl.GetUrl() );
+          fLBSUrl = new XrdClientUrlInfo( fUrl.GetUrl() );
+        }
+      }
 
-	  // Save the url of load balancer server for future uses...
-	  fLBSUrl = new XrdClientUrlInfo(fUrl.GetUrl());
-	  if (!fLBSUrl) {
-	    Error("DoHandShake","Object creation failed.");
-	    abort();
-	  }
-	}
-       
+      //------------------------------------------------------------------------
+      // Handle a meta manager - we always remember the last meta manager
+      // encountered
+      //------------------------------------------------------------------------
+      if( type == kSTMetaXrootd )
+      {
+        delete fMetaUrl;
+        Info( XrdClientDebug::kHIDEBUG, "DoHandShake",
+              "Setting Meta Manager Server Url = " << fUrl.GetUrl() );
+        fMetaUrl = new XrdClientUrlInfo( fUrl.GetUrl() );
+
+        //----------------------------------------------------------------------
+        // We always remember the first manager in the chain, unless there is
+        // none available in which case we use the last meta manager for this
+        // purpose
+        //----------------------------------------------------------------------
+        if( !fLBSUrl || fLBSIsMeta )
+        {
+          delete fLBSUrl;
+          fLBSIsMeta = true;
+
+          Info( XrdClientDebug::kHIDEBUG, "DoHandShake",
+                "Setting Meta Load Balancer Server Url = " << fUrl.GetUrl() );
+
+          fLBSUrl = new XrdClientUrlInfo( fUrl.GetUrl() );
+        }
       }
 
       return type;
-
-
     }
 }
 
@@ -1458,7 +1457,7 @@ bool XrdClientConn::DoLogin()
        XrdClientLogConnection *l = ConnectionManager->GetConnection(fLogConnID);
        XrdClientPhyConnection *p = 0;
        if (l) p = l->GetPhyConnection();
-       if (p) p->SetLogged(kNo);
+       if (p) {p->SetLogged(kNo); fOpenSockFD = p->GetSocket();}
        else {
           Error("DoLogin",
                 "Logical connection disappeared before request?!? Srv: [" << fUrl.Host << ":" << fUrl.Port <<
@@ -1553,7 +1552,7 @@ bool XrdClientConn::DoLogin()
 	    resp = (secp != 0) ? 1 : 0;
 	}
 
-
+        if( resp ) {
 	if (prevsessid) {
 	    //
 	    // We have to kill the previous session, if any
@@ -1603,7 +1602,7 @@ bool XrdClientConn::DoLogin()
 	    fSessionIDRepo.Rep(sessname.c_str(), newsessid);
 	}
 
-    }
+    } } //resp
 
     // Flag success if everything went ok
     {
@@ -1639,6 +1638,9 @@ XrdSecProtocol *XrdClientConn::DoAuthentication(char *plist, int plsiz)
    // starting from the first.
    static XrdSecGetProt_t getp = 0;
    XrdSecProtocol *protocol = (XrdSecProtocol *)0;
+   XrdOucEnv authEnv;
+   struct sockaddr myAddr;
+   socklen_t       myALen = sizeof(myAddr);
 
    if (!plist || plsiz <= 0)
       return protocol;
@@ -1658,6 +1660,14 @@ XrdSecProtocol *XrdClientConn::DoAuthentication(char *plist, int plsiz)
    }
    netaddr.sin_port   = fUrl.Port;
 
+   // Establish our local connection details (used by sss protocol)
+   //
+   if (!getsockname(fOpenSockFD, &myAddr, &myALen))
+      {char ipBuff[64];
+       if (XrdSysDNS::IPFormat(&myAddr, ipBuff, sizeof(ipBuff)))
+          authEnv.Put("sockname", ipBuff);
+      }
+
    //
    // Variables for negotiation
    XrdSecParameters  *secToken = 0;
@@ -1672,9 +1682,13 @@ XrdSecProtocol *XrdClientConn::DoAuthentication(char *plist, int plsiz)
 
    // We need to load the protocol getter the first time we are here
    if (!getp) {
+      char libfn[80];
+      snprintf( libfn, sizeof(libfn)-1, "libXrdSec%s", LT_MODULE_EXT );
+      libfn[sizeof(libfn)-1] = '\0';
+
       // Open the security library
       void *lh = 0;
-      if (!(lh = dlopen("libXrdSec.so", RTLD_NOW))) {
+      if (!(lh = dlopen( libfn, RTLD_NOW))) {
          Info(XrdClientDebug::kHIDEBUG, "DoAuthentication",
                                        "unable to load libXrdSec.so");
          // Set error, in case of need
@@ -1706,7 +1720,7 @@ XrdSecProtocol *XrdClientConn::DoAuthentication(char *plist, int plsiz)
       XrdOucString protname = protocol->Entity.prot;
       //
       // Once we have the protocol, get the credentials
-      XrdOucErrInfo ei;
+      XrdOucErrInfo ei("", &authEnv);
       credentials = protocol->getCredentials(0, &ei);
       if (!credentials) {
          Info(XrdClientDebug::kHIDEBUG, "DoAuthentication",
@@ -2071,7 +2085,7 @@ XrdClientConn::HandleServerError(XReqErrorType &errorType, XrdClientMessage *xms
 XReqErrorType XrdClientConn::GoToAnotherServer(XrdClientUrlInfo &newdest)
 {
     // Re-directs to another server
-   
+
     fGettingAccessToSrv = false; 
 
     if (!newdest.Port) newdest.Port = 1094;
@@ -2104,6 +2118,23 @@ XReqErrorType XrdClientConn::GoToAnotherServer(XrdClientUrlInfo &newdest)
 
     return kOK;
 }
+
+//_____________________________________________________________________________
+XReqErrorType XrdClientConn::GoToMetaManager()
+{
+  if( !fMetaUrl )
+    return kGENERICERR;
+
+  //----------------------------------------------------------------------------
+  // We go back to the meta manager so we need to forget the manager that
+  // we have encountered
+  //----------------------------------------------------------------------------
+  delete fLBSUrl;
+  fLBSUrl    = new XrdClientUrlInfo( fMetaUrl->GetUrl() );
+  fLBSIsMeta = true;
+  return GoToAnotherServer( *fMetaUrl );
+}
+
 
 //_____________________________________________________________________________
 XReqErrorType XrdClientConn::GoBackToRedirector() {

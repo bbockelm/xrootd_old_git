@@ -823,6 +823,11 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
          const char *capxy_what = (AuthzPxyWhat == 1) ? "'last proxy only'" : "'full proxy chain'";
          const char *capxy_where = (AuthzPxyWhere == 1) ? "XrdSecEntity.creds" : "XrdSecEntity.endorsements";
          DEBUG("Export proxy for authorization in '"<<capxy_where<<"': "<<capxy_what);
+         if (hasauthzfun) {
+            // Warn user about possible overwriting of Entity.creds or Entity.endorsements
+            PRINT("WARNING: proxy export for authz enabled: be aware that any setting of '"<<capxy_what<<
+                  "' done by '"<<opt.authzfun<<"' will get overwritten with "<<capxy_what);
+         }
       }
 
       //
@@ -980,6 +985,7 @@ void XrdSecProtocolgsi::Delete()
    SafeFree(Entity.endorsements);
    SafeFree(Entity.creds);
    Entity.credslen = 0;
+   SafeFree(Entity.moninfo);
    // Cleanup the handshake variables, if still there
    SafeDelete(hs);
    // Cleanup any other instance specific to this protocol
@@ -1804,15 +1810,11 @@ int XrdSecProtocolgsi::Authenticate(XrdSecCredentials *cred,
          if (!cent || (cent && (cent->status != kPFE_ok))) {
             int authzrc = 0;
             if ((authzrc = (*AuthzFun)(Entity)) != 0) {
-               if (authzrc < 0) {
-                  // Fatal error
-                  kS_rc = kgST_error;
-                  PRINT("ERROR: the authorization plug-in reported a fatal failure!");
-                  SafeDelete(key);
-                  break;
-               } else {
-                  PRINT("WARNING: the authorization plug-in reported a non-fatal failure!");
-               }
+               // Error
+               kS_rc = kgST_error;
+               PRINT("ERROR: the authorization plug-in reported a failure for this handshake");
+               SafeDelete(key);
+               break;
             } else {
                if ((cent = cacheAuthzFun.Add(dn))) {
                   cent->status = kPFE_ok;
@@ -1974,8 +1976,13 @@ void XrdSecProtocolgsi::CopyEntity(XrdSecEntity *in, XrdSecEntity *out, int *lou
    if (in->vorg) { out->vorg = strdup(in->vorg); slen += strlen(in->vorg); }
    if (in->role) { out->role = strdup(in->role); slen += strlen(in->role); }
    if (in->grps) { out->grps = strdup(in->grps); slen += strlen(in->grps); }
+   if (in->creds && in->credslen > 0) {
+                   out->creds = strdup(in->creds); slen += in->credslen;
+                   out->credslen = in->credslen; }
    if (in->endorsements) { out->endorsements = strdup(in->endorsements);
                            slen += strlen(in->endorsements); }
+   if (in->moninfo) { out->moninfo = strdup(in->moninfo);
+                      slen += strlen(in->moninfo); }
 
    // Save length, if required
    if (lout) *lout = slen;
@@ -1999,7 +2006,9 @@ void XrdSecProtocolgsi::FreeEntity(XrdSecEntity *in)
    if (in->vorg) SafeFree(in->vorg);
    if (in->role) SafeFree(in->role);
    if (in->grps) SafeFree(in->grps);
+   if (in->creds && in->credslen > 0) { SafeFree(in->creds); in->credslen = 0; }
    if (in->endorsements) SafeFree(in->endorsements);
+   if (in->moninfo) SafeFree(in->moninfo);
    
    // Done
    return;
@@ -4648,8 +4657,9 @@ int XrdSecProtocolgsi::LoadGMAP(int now)
          cent->cnt = 0;
          cent->mtime = now; // creation time
          // Add username
-         SafeFree(cent->buf1.buf);
-         cent->buf1.buf = strdup(usr.c_str());
+         SafeDelArray(cent->buf1.buf);
+         cent->buf1.buf = new char[usr.length() + 1];
+         strcpy(cent->buf1.buf, usr.c_str());
          cent->buf1.len = usr.length();
       }
    }
@@ -4708,7 +4718,7 @@ void XrdSecProtocolgsi::QueryGMAP(XrdCryptoX509Chain *chain, int now, String &us
             if (name) {
                cent->status = kPFE_ok;
                // Add username
-               SafeFree(cent->buf1.buf);
+               SafeDelArray(cent->buf1.buf);
                cent->buf1.buf = name;
                cent->buf1.len = strlen(name);
             } else {
@@ -4827,8 +4837,7 @@ XrdSecgsiAuthz_t XrdSecProtocolgsi::LoadAuthzFun(const char *plugin,
    //    The proxy chain can be either in 'raw' or 'PEM base64' format (see below).
    //    This function returns 
    //                          0      on success
-   //                         <0      on FATAL error
-   //                         >0      on error
+   //                         <0      on error (implies authentication failure)
    //
    // 2. The initialization function:
    //

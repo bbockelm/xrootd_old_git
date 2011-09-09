@@ -195,11 +195,13 @@ public:
     kXR_unt16                  GetStreamID() const { return fPrimaryStreamid; }
 
     inline XrdClientUrlInfo    *GetLBSUrl() { return fLBSUrl; }
+    inline XrdClientUrlInfo    *GetMetaUrl() { return fMetaUrl; }
     inline XrdClientUrlInfo    GetCurrentUrl() { return fUrl; }
     inline XrdClientUrlInfo    GetRedirUrl() { return fREQUrl; }
 
     XErrorCode                 GetOpenError() const { return fOpenError; }
     virtual XReqErrorType      GoToAnotherServer(XrdClientUrlInfo &newdest);
+    virtual XReqErrorType      GoToMetaManager();
     bool                       IsConnected() const { return fConnected; }
     bool                       IsPhyConnConnected();
 
@@ -431,6 +433,10 @@ private:
 					     int substreamid = 0);
 
     bool                       WaitResp(int secsmax);
+
+    XrdClientUrlInfo           *fMetaUrl;           // Meta manager url
+    bool                        fLBSIsMeta;         // Is current redirector a meta manager?
+
 };
 
 

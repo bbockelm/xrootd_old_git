@@ -3,6 +3,9 @@ Version 3.1.0
 -------------
 
 + **New Features**
+   * Allow the OucErrInfo object to point to an environment.
+   * Add method to SysDNS to format an AF_INETx address into the RFC IPV6
+     recommended format.
    * Allow pointers to be placed in the OucEnv environment table.
    * Extend the kXR_protocol request to allow the server to return detailed
      information about node's role. This is backwardly compatible.
@@ -70,6 +73,12 @@ Version 3.1.0
    * Fix incorrect lock handling for multiple waiters.
 
 + **Minor bug fixes**
+   * Allow the sss protocol to work for multi-homed hosts.
+   * Remove old async shutdown workaround patch introduced in Linux 2.3. The
+     problem has been since fixed and the solution now causes problems.
+   * Correct definition of AtomicISM that caused the maximum link count to
+     never be updated in the statistics.
+   * Apply N2N mapping to source path when relocating the file.
    * Report correct port when locate is directly issued to a data server
      (before it was being reported as 0).
    * Make the default file system a pointer to a dynamic instance of XrdOfs
@@ -77,6 +86,10 @@ Version 3.1.0
      writing an ofs plugin easier.
 
 + **Miscellaneous**
+   * Remove all references via extern statements to object instances. This
+     only applies to the Xrd package.
+   * Do not echo lines qualified by an in-line if when the if fails.
+   * Remove the old "redirect" directive. It has passed its prime.
    * Remove back references to symbols defined in XrdXrootd package used by
      the cms client to allow for clean shared library builds.
    * Remove externs to XrdSecGetProtocol and XrdSecGetService from
