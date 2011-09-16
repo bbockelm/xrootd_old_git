@@ -58,9 +58,13 @@ find_package( Readline )
 find_package( ZLIB )
 find_package( OpenSSL )
 find_package( Kerberos5 )
-find_package( fuse )
 find_package( PerlLibs )
 find_package( SWIG )
+
+# for now we only support fuse drivers on Linux
+if( Linux )
+  find_package( fuse )
+endif()
 
 if( READLINE_FOUND )
   add_definitions( -DHAVE_READLINE )
@@ -83,8 +87,18 @@ endif()
 #-------------------------------------------------------------------------------
 add_custom_target(
   XrdVersion.hh
-  ALL
   ${CMAKE_SOURCE_DIR}/genversion.sh ${CMAKE_SOURCE_DIR} )
+
+# sigh, yet another ugly hack :(
+macro( add_library _target )
+  _add_library( ${_target} ${ARGN} )
+  add_dependencies( ${_target} XrdVersion.hh )
+endmacro()
+
+macro( add_executable _target )
+  _add_executable( ${_target} ${ARGN} )
+  add_dependencies( ${_target} XrdVersion.hh )
+endmacro()
 
 #-------------------------------------------------------------------------------
 # Build in subdirectories
