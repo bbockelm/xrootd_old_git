@@ -33,7 +33,7 @@ add_executable(
 target_link_libraries(
   xrootd
   XrdServer
-  XrdProtocolLoader
+  XrdMain
   XrdOfs
   dl )
 
@@ -75,7 +75,7 @@ target_link_libraries(
   cmsd
   XrdUtils
   XrdServer
-  XrdProtocolLoader )
+  XrdMain )
 
 #-------------------------------------------------------------------------------
 # Install
@@ -89,5 +89,4 @@ install(
   FILES
   ${PROJECT_SOURCE_DIR}/docs/man/cmsd.8
   ${PROJECT_SOURCE_DIR}/docs/man/xrootd.8
-  DESTINATION ${CMAKE_INSTALL_MANDIR}/man8
-  PERMISSIONS OWNER_READ OWNER_WRITE )
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man8 )

@@ -54,6 +54,24 @@ set_target_properties(
   SOVERSION ${XRD_SEC_GSI_GMAPLDAP_SOVERSION} )
 
 #-------------------------------------------------------------------------------
+# The XrdSecgsiAuthzVO library
+#-------------------------------------------------------------------------------
+add_library(
+  XrdSecgsiAuthzVO
+  SHARED
+  XrdSecgsi/XrdSecgsiAuthzFunVO.cc )
+
+target_link_libraries(
+  XrdSecgsiAuthzVO
+  XrdUtils )
+
+set_target_properties(
+  XrdSecgsiAuthzVO
+  PROPERTIES
+  VERSION   ${XRD_SEC_GSI_AUTHZVO_VERSION}
+  SOVERSION ${XRD_SEC_GSI_AUTHZVO_SOVERSION} )
+
+#-------------------------------------------------------------------------------
 # The XrdSecgsiGMAPDN library
 #-------------------------------------------------------------------------------
 add_library(
@@ -95,5 +113,4 @@ install(
 install(
   FILES
   ${PROJECT_SOURCE_DIR}/docs/man/xrdgsiproxy.1
-  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
-  PERMISSIONS OWNER_READ OWNER_WRITE )
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
