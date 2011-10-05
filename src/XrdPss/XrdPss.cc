@@ -34,10 +34,19 @@
 
 #include "XrdOss/XrdOssError.hh"
 #include "XrdOuc/XrdOucEnv.hh"
+#include "XrdOuc/XrdOucExport.hh"
 #include "XrdSec/XrdSecEntity.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysHeaders.hh"
 #include "XrdSys/XrdSysPlatform.hh"
+
+/******************************************************************************/
+/*                               D e f i n e s                                */
+/******************************************************************************/
+
+#define isNOSTAGE(_x_) !(XRDEXP_STAGE & XrdPssSys::XPList.Find(_x_))
+
+#define isREADONLY(_x_) (XRDEXP_NOTRW & XrdPssSys::XPList.Find(_x_))
 
 /******************************************************************************/
 /*                               G l o b a l s                                */
@@ -179,6 +188,10 @@ int XrdPssSys::Mkdir(const char *path, mode_t mode, int mkpath)
 {
    char pbuff[PBsz];
 
+// Verify we can write here
+//
+   if (isREADONLY(path)) return -EROFS;
+
 // Convert path to URL
 //
    if (!P2URL(pbuff, PBsz, path)) return -ENAMETOOLONG;
@@ -204,6 +217,10 @@ int XrdPssSys::Remdir(const char *path, int Opts)
    const char *Cgi = (Opts & XRDOSS_Online ? "ofs.lcl=1" : "");
    char pbuff[PBsz], *subPath;
    int rc;
+
+// Verify we can write here
+//
+   if (isREADONLY(path)) return -EROFS;
 
 // Convert path to URL
 //
@@ -239,6 +256,10 @@ int XrdPssSys::Remdir(const char *path, int Opts)
 int XrdPssSys::Rename(const char *oldname, const char *newname)
 {
    char oldName[PBsz], *oldSubP, newName[PBsz], *newSubP;
+
+// Verify we can write in the source and target
+//
+   if (isREADONLY(oldname) || isREADONLY(newname)) return -EROFS;
 
 // If we are not forwarding the request, manually execute it everywhere.
 //
@@ -276,13 +297,23 @@ int XrdPssSys::Rename(const char *oldname, const char *newname)
   Notes:    The XRDOSS_resonly flag in Opts is not supported.
 */
 
-int XrdPssSys::Stat(const char *path, struct stat *buff, int Opts)
+int XrdPssSys::Stat(const char *path, struct stat *buff, int Opts, XrdOucEnv *eP)
 {
+   static const char *noStageCGI = "oss.lcl=1";
+   static const int   noStageCGL = strlen(noStageCGI);
+   const char *Cgi;
    char pbuff[PBsz];
+   int CgiLen;
+
+// Setup any required cgi information
+//
+   if ((Opts & XRDOSS_resonly) || isNOSTAGE(path))
+      {Cgi = noStageCGI; CgiLen = noStageCGL;}
+      else {Cgi = 0; CgiLen = 0;}
 
 // Convert path to URL
 //
-   if (!P2URL(pbuff, PBsz, path)) return -ENAMETOOLONG;
+   if (!P2URL(pbuff, PBsz, path, 0, Cgi, CgiLen)) return -ENAMETOOLONG;
 
 // Return proxied stat
 //
@@ -304,6 +335,10 @@ int XrdPssSys::Stat(const char *path, struct stat *buff, int Opts)
 int XrdPssSys::Truncate(const char *path, unsigned long long flen)
 {
    char pbuff[PBsz];
+
+// Make sure we can write here
+//
+   if (isREADONLY(path)) return -EROFS;
 
 // Convert path to URL
 //
@@ -331,6 +366,10 @@ int XrdPssSys::Unlink(const char *path, int Opts)
    const char *Cgi = (Opts & XRDOSS_Online ? "ofs.lcl=1" : "");
    char pbuff[PBsz], *subPath;
    int rc;
+
+// Make sure we can write here
+//
+   if (isREADONLY(path)) return -EROFS;
 
 // Convert path to URL
 //
@@ -472,17 +511,37 @@ int XrdPssDir::Close(long long *retsz)
 */
 int XrdPssFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &Env)
 {
-   const char *Cgi = "";
-   char pbuff[PBsz];
+   static const char *noStageCGI = "oss.lcl=1";
+   static const int   noStageCGL = strlen(noStageCGI);
+   unsigned long long popts = XrdPssSys::XPList.Find(path);
+   const char *Cgi;
+   char pbuff[PBsz], cgbuff[PBsz];
    int CgiLen;
 
 // Return an error if the object is already open
 //
    if (fd >= 0) return -XRDOSS_E8003;
 
-// Obtain the cgi info
+// If we are opening this in r/w mode make sure we actually can
 //
-   Cgi   = Env.Env(CgiLen);
+   if ((Oflag & (O_WRONLY | O_RDWR | O_APPEND)) && (popts & XRDEXP_NOTRW))
+      {if (popts & XRDEXP_FORCERO) Oflag = O_RDONLY;
+          else return -EROFS;
+      }
+
+// Setup any required cgi information
+//
+   Cgi= Env.Env(CgiLen);
+   if (!(XRDEXP_STAGE & popts))
+      {if (!CgiLen) {Cgi = noStageCGI; CgiLen = noStageCGL;}
+          else {int n = CgiLen + noStageCGL + 1;
+                if (n >= PBsz) return -ENAMETOOLONG;
+                strcpy(cgbuff, Cgi);
+                cgbuff[CgiLen] = '&';
+                strcpy(cgbuff+CgiLen+1, noStageCGI);
+                Cgi = cgbuff; CgiLen = n;
+               }
+       }
 
 // Convert path to URL
 //

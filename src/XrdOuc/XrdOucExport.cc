@@ -9,6 +9,7 @@
 /******************************************************************************/
 
 #include "XrdOuc/XrdOucExport.hh"
+#include "XrdOuc/XrdOucPList.hh"
 #include "XrdSys/XrdSysPlatform.hh"
   
 /******************************************************************************/
@@ -17,7 +18,7 @@
   
 /* Function: ParseDefs
 
-   Purpose:  Parse: defaults [[no]check] [[no]compchk] [[no]dread]
+   Purpose:  Parse: defaults [[no]check] [[no]dread]
 
                              [[no]filter] [forcero]
 
@@ -27,7 +28,7 @@
 
                              [[no]mlock] [[no]mmap] [outplace] [readonly]
 
-                             [[no]ssdec] [[no]stage]  [[no]rcreate] 
+                             [[no]stage] [stage+] [[no]rcreate]
 
                              [[not]writable] [[no]xattrs]
 
@@ -46,7 +47,6 @@ unsigned long long XrdOucExport::ParseDefs(XrdOucStream      &Config,
             unsigned long long opadd; 
             unsigned long long opset;} rpopts[] =
        {
-        {"compchk",       0,              XRDEXP_COMPCHK, 0},
         {"r/o",           0,              XRDEXP_READONLY,XRDEXP_ROW_X},
         {"readonly",      0,              XRDEXP_READONLY,XRDEXP_ROW_X},
         {"forcero",       0,              XRDEXP_FORCERO, XRDEXP_ROW_X},
@@ -55,8 +55,6 @@ unsigned long long XrdOucExport::ParseDefs(XrdOucStream      &Config,
         {"r/w",           XRDEXP_NOTRW,   0,              XRDEXP_ROW_X},
         {"inplace",       0,              XRDEXP_INPLACE, XRDEXP_INPLACE_X},
         {"outplace",      XRDEXP_INPLACE, 0,              XRDEXP_INPLACE_X},
-        {"nofilter",      XRDEXP_FILTER,  0,              XRDEXP_MKEEP_X},
-        {"filter",        0,              XRDEXP_FILTER,  XRDEXP_FILTER_X},
         {"nomig",         XRDEXP_MIG,     0,              XRDEXP_MIG_X},
         {"mig",           0,              XRDEXP_MIG,     XRDEXP_MIG_X},
         {"notmigratable", XRDEXP_MIG,     0,              XRDEXP_MIG_X},
@@ -71,14 +69,13 @@ unsigned long long XrdOucExport::ParseDefs(XrdOucStream      &Config,
         {"purge",         0,              XRDEXP_PURGE,   XRDEXP_PURGE_X},
         {"nostage",       XRDEXP_STAGE,   0,              XRDEXP_STAGE_X},
         {"stage",         0,              XRDEXP_STAGE,   XRDEXP_STAGE_X},
+        {"stage+",        0,              XRDEXP_STAGEMM, XRDEXP_STAGE_X},
         {"dread",         XRDEXP_NODREAD, 0,              XRDEXP_DREAD_X},
         {"nodread",       0,              XRDEXP_NODREAD, XRDEXP_DREAD_X},
         {"check",         XRDEXP_NOCHECK, 0,              XRDEXP_CHECK_X},
         {"nocheck",       0,              XRDEXP_NOCHECK, XRDEXP_CHECK_X},
         {"rcreate",       0,              XRDEXP_RCREATE, XRDEXP_RCREATE_X},
         {"norcreate",     XRDEXP_RCREATE, 0,              XRDEXP_RCREATE_X},
-        {"nossdec",       0,              XRDEXP_NOSSDEC, XRDEXP_NOSSDEC_X},
-        {"ssdec",         XRDEXP_NOSSDEC, 0,              XRDEXP_NOSSDEC_X},
         {"local",         XRDEXP_GLBLRO,  XRDEXP_LOCAL,   XRDEXP_LOCAL_X},
         {"global",        XRDEXP_LOCAL,   0,              XRDEXP_LOCAL_X},
         {"globalro",      XRDEXP_LOCAL,   XRDEXP_GLBLRO,  XRDEXP_GLBLRO_X},
@@ -123,7 +120,6 @@ unsigned long long XrdOucExport::ParseDefs(XrdOucStream      &Config,
              <path>    the path prefix that applies
              <options> a blank separated list of options:
                        [no]check    - [don't] check if new file exists in MSS
-                       [no]compchk  - [don't] check for compressed files
                        [no]dread    - [don't] read actual directory contents
                            forcero  - force r/w opens to r/o opens
                            inplace  - do not use extended cache for creation
@@ -138,15 +134,16 @@ unsigned long long XrdOucExport::ParseDefs(XrdOucStream      &Config,
                        [no]rcreate  - [don't] create file in MSS as well
                            r/o      - do not allow modifications (read/only)
                            r/w      - path is writable/modifiable
-                       [no]ssdec    - [don't] perform server side decompression
                        [no]stage    - [don't] stage in files.
 
    Output: XrdOucPList object upon success or 0 upon failure.
 */
   
 XrdOucPList *XrdOucExport::ParsePath(XrdOucStream &Config, XrdSysError &Eroute,
+                                     XrdOucPListAnchor &Export,
                                      unsigned long long Defopts)
 {
+    XrdOucPList *plp;
     char *path, pbuff[1024];
     unsigned long long rpval;
 
@@ -157,9 +154,10 @@ XrdOucPList *XrdOucExport::ParsePath(XrdOucStream &Config, XrdSysError &Eroute,
       {Eroute.Emsg("Export", "path not specified"); return 0;}
    strlcpy(pbuff, path, sizeof(pbuff));
 
-// Process path options
+// Process path options and apply defaults to any unspecified otions
 //
    rpval = ParseDefs(Config, Eroute, 0);
+   rpval = rpval | (Defopts & (~(rpval >> XRDEXP_MASKSHIFT)));
 
 // Make sure that we have no conflicting options
 //
@@ -170,7 +168,19 @@ XrdOucPList *XrdOucExport::ParsePath(XrdOucStream &Config, XrdSysError &Eroute,
       }
    if (rpval & (XRDEXP_MLOK | XRDEXP_MKEEP)) rpval |= XRDEXP_MMAP;
 
+// Update the export list. If this path is being modified, turn off all bits
+// in the old path specified in the new path and then set the new bits.
+//
+   if ((plp = Export.Match(pbuff)))
+      {unsigned long long Opts = rpval >> XRDEXP_MASKSHIFT;
+       Opts = (plp->Flag() & ~Opts) | rpval;
+       plp->Set(Opts);
+      } else {
+       plp = new XrdOucPList(pbuff,rpval);
+       Export.Insert(plp);
+      }
+
 // Return the path specification
 //
-   return new XrdOucPList(pbuff, rpval);
+   return plp;
 }

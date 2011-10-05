@@ -3,6 +3,23 @@ Version 3.1.0
 -------------
 
 + **New Features**
+   * Provide a mode in xrootdfs to auto-update internal list of data servers.
+     and extend client connection TTL from one hour to infinity.
+   * Provide virtual xattr ("xroot.cksum") to obtain checksum for consistency.
+   * Make xrdadler32 use the new checksum format if it is set (fallback to old
+     format otherwise). In all cases, the old format is converted to the new
+     format whenever possible.
+   * Enforce r/o exports in the proxy server (finally added).
+   * Allow auto-fluching of I/O stream monitoring (default is off).
+     Patch submitted by Matevz Tadel, UCSD.
+   * Make proxy honor the export list at the storage layer. This allows sites
+     to disable staging via the proxy by specifying nostage for otherwise locally
+     stageable paths.
+   * Do not export the stage attribute to the meta-manager unless the path is
+     tagged with the stage+ attrbute on the export directive.
+   * WARNING: This update makes the oss plug-in source incompatible because an
+     additional parameter was added to the Stat() method. The update is binary
+     compatible and so only affects sites that recompile their plug-in.
    * Allow the query checksum request to be issued via a proxy server.
    * Add a query checksum interface to the POSIX interface.
    * Defines the livXrdSecgsiAuthzVO plug-in to allow easy mapping from voms
@@ -73,15 +90,16 @@ Version 3.1.0
    * In 'xrdgsiproxy info' show also the VOMS attributes, if present. 
 
 + **Major bug fixes**
+   * Enforce r/o path during mkdir operations.
    * Avoid segv when initializing the finder on a multi-core machine.
-   * Avoid stage failures when target file exists in purgeable or writable space.
    * Fix incorrect lock handling for multiple waiters.
 
 + **Minor bug fixes**
+   * Use re-enterant versions of getpwuid() and getpwgid(). This is need for
+     FUSE.
+   * Correct bad english in a few error messages.
    * Set correct checksum length when converting ASCII to binary.
    * Allow the sss protocol to work for multi-homed hosts.
-   * Remove old async shutdown workaround patch introduced in Linux 2.3. The
-     problem has been since fixed and the solution now causes problems.
    * Correct definition of AtomicISM that caused the maximum link count to
      never be updated in the statistics.
    * Apply N2N mapping to source path when relocating the file.
@@ -92,6 +110,9 @@ Version 3.1.0
      writing an ofs plugin easier.
 
 + **Miscellaneous**
+   * Remove compression related attributes (compchk, ssdec) and directives
+     (compdetect) as they were never used nor fully implemented.
+   * Remove the userprty directive. It was deprecated and never specified.
    * Refactor PosixPreeload and Posix libraries to prevent split initialization
      of the preload library which will cause failures on certain systems.
    * Provide automatic proxy checksum defaults when role is set to proxy.

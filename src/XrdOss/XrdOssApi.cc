@@ -35,6 +35,7 @@
 #include "XrdOss/XrdOssError.hh"
 #include "XrdOss/XrdOssMio.hh"
 #include "XrdOss/XrdOssTrace.hh"
+#include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
 #include "XrdOuc/XrdOucXAttr.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -247,7 +248,12 @@ int XrdOssSys::Chmod(const char *path, mode_t mode)
 int XrdOssSys::Mkdir(const char *path, mode_t mode, int mkpath)
 {
     char actual_path[MAXPATHLEN+1], *local_path;
+    unsigned long long Popts, Hopts;
     int retc;
+
+// Make sure we can modify this path
+//
+   Popts = Check_RO(Mkdir, Hopts, path, "create directory");
 
 // Generate local path
 //
@@ -376,7 +382,7 @@ int XrdOssSys::Truncate(const char *path, unsigned long long size)
 
 // Make sure we can modify this path
 //
-   Popts = Check_RO(Truncate, Hopts, path, "truncating ");
+   Popts = Check_RO(Truncate, Hopts, path, "truncate");
 
 // Generate local path
 //
@@ -593,9 +599,10 @@ int XrdOssFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &Env)
    if (fd >= 0) return -XRDOSS_E8003;
       else cxobj = 0;
 
-// Construct the processing options for this path
+// Construct the processing options for this path.
 //
    popts = XrdOssSS->PathOpts(path);
+   if (popts & XRDEXP_STAGE && Env.Get("oss.lcl")) popts &= ~XRDEXP_STAGE;
 
 // Generate local path
 //

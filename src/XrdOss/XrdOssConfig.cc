@@ -9,16 +9,6 @@
 /*                DE-AC03-76-SFO0515 with the Deprtment of Energy             */
 /******************************************************************************/
 
-/*
-   The routines in this file handle initialization. They get the
-   configuration values either from configuration file or XrdOssconfig.h (in that
-   order of precedence).
-
-   These routines are thread-safe if compiled with:
-   AIX: -D_THREAD_SAFE
-   SUN: -D_REENTRANT
-*/
-  
 #include <unistd.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -148,8 +138,6 @@ XrdOssSys::XrdOssSys()
    totbytes      = 0;
    totreqs       = 0;
    badreqs       = 0;
-   CompSuffix    = 0;
-   CompSuflen    = 0;
    MaxTwiddle    = 3;
    tryMmap       = 0;
    chkMmap       = 0;
@@ -340,7 +328,6 @@ void XrdOssSys::Config_Display(XrdSysError &Eroute)
      snprintf(buff, sizeof(buff), "Config effective %s oss configuration:\n"
                                   "       oss.alloc        %lld %d %d\n"
                                   "       oss.cachescan    %d\n"
-                                  "       oss.compdetect   %s\n"
                                   "       oss.fdlimit      %d %d\n"
                                   "       oss.maxsize      %lld\n"
                                   "%s%s%s"
@@ -355,7 +342,6 @@ void XrdOssSys::Config_Display(XrdSysError &Eroute)
              cloc,
              minalloc, ovhalloc, fuzalloc,
              cscanint,
-             (CompSuffix ? CompSuffix : "*"),
              FDFence, FDLimit, MaxSize,
              XrdOssConfig_Val(N2N_Lib,    namelib),
              XrdOssConfig_Val(LocalRoot,  localroot),
@@ -597,11 +583,6 @@ void XrdOssSys::ConfigSpace(const char *Lfn)
 void XrdOssSys::ConfigSpath(XrdSysError &Eroute, const char *Path,
                            unsigned long long &flags, int noMSS)
 {
-
-// Apply defaults for anything not actually specified in the flags
-//
-   flags = flags | (DirFlags & (~(flags >> XRDEXP_MASKSHIFT)));
-
 // mig+r/w -> check unless nocheck was specified
 //
    if ((flags & XRDEXP_MIG) && !(flags & XRDEXP_NOTRW)
@@ -893,12 +874,9 @@ int XrdOssSys::ConfigXeq(char *var, XrdOucStream &Config, XrdSysError &Eroute)
     int nosubs;
     XrdOucEnv *myEnv = 0;
 
-   TS_Ade("userprty",      OptFlags, XrdOss_USRPRTY, 0);
-
    TS_Xeq("alloc",         xalloc);
    TS_Xeq("cache",         xcache);
    TS_Xeq("cachescan",     xcachescan);
-   TS_Xeq("compdetect",    xcompdct);
    TS_Xeq("defaults",      xdefault);
    TS_Xeq("fdlimit",       xfdlimit);
    TS_Xeq("maxsize",       xmaxsz);
@@ -1037,36 +1015,6 @@ int XrdOssSys::xcache(XrdOucStream &Config, XrdSysError &Eroute)
       Eroute.Say("Config warning: 'oss.cache' is deprecated; "
                                  "use 'oss.space' instead!");
     return rc;
-}
-
-/******************************************************************************/
-/*                              x c o m p d c t                               */
-/******************************************************************************/
-
-/* Function: xcompdct
-
-   Purpose:  To parse the directive: compdetect { * | <sfx>}
-
-             *        perform autodetect for compression
-             <sfx>    path suffix to indicate that file is compressed
-
-   Output: 0 upon success or !0 upon failure.
-*/
-
-int XrdOssSys::xcompdct(XrdOucStream &Config, XrdSysError &Eroute)
-{
-    char *val;
-
-    if (!(val = Config.GetWord()))
-       {Eroute.Emsg("Config", "compdetect suffix not specified"); return 1;}
-
-    if (CompSuffix) free(CompSuffix);
-    CompSuffix = 0; CompSuflen = 0;
-
-    if (!strcmp("*", val))
-       {CompSuffix = strdup(val); CompSuflen = strlen(val);}
-
-    return 0;
 }
 
 /******************************************************************************/
@@ -1315,23 +1263,10 @@ int XrdOssSys::xnml(XrdOucStream &Config, XrdSysError &Eroute)
 
 int XrdOssSys::xpath(XrdOucStream &Config, XrdSysError &Eroute)
 {
-    XrdOucPList *plp, *olp;
-    unsigned long long Opts;
 
 // Parse the arguments
 //
-   if (!(plp = XrdOucExport::ParsePath(Config, Eroute, DirFlags))) return 1;
-
-// Check if this path is being modified or added. For modifications, turn off
-// all bitsin the old path specified in the new path and then set the new bits.
-//
-   if (!(olp = RPList.Match(plp->Path()))) RPList.Insert(plp);
-      else {Opts = plp->Flag() >> XRDEXP_MASKSHIFT;
-            Opts = olp->Flag() & ~Opts;
-            olp->Set(Opts | plp->Flag());
-            delete plp;
-           }
-   return 0;
+   return (XrdOucExport::ParsePath(Config, Eroute, RPList, DirFlags) ? 0 : 1);
 }
 
 /******************************************************************************/
@@ -1703,25 +1638,24 @@ void XrdOssSys::List_Path(const char *pfx, const char *pname,
         else if (flags & XRDEXP_READONLY) rwmode = (char *)" r/o ";
                 else rwmode = (char *)" r/w ";
                                  //   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
-     snprintf(buff, sizeof(buff), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+     snprintf(buff, sizeof(buff), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
               pfx, pname,                                           // 0
-              (flags & XRDEXP_COMPCHK  ? " compchk" : ""),          // 1
-              rwmode,                                               // 2
-              (flags & XRDEXP_INPLACE  ? " inplace" : ""),          // 3
-              (flags & XRDEXP_LOCAL    ? " local"   : ""),          // 4
-              (flags & XRDEXP_GLBLRO   ? " globalro": ""),          // 5
-              (flags & XRDEXP_NOCHECK  ? " nocheck" : " check"),    // 6
-              (flags & XRDEXP_NODREAD  ? " nodread" : " dread"),    // 7
-              (flags & XRDEXP_MIG      ? " mig"     : " nomig"),    // 8
-     (!(flags & XRDEXP_MMAP)           ? ""         :               // 9
+              rwmode,                                               // 1
+              (flags & XRDEXP_INPLACE  ? " inplace" : ""),          // 2
+              (flags & XRDEXP_LOCAL    ? " local"   : ""),          // 3
+              (flags & XRDEXP_GLBLRO   ? " globalro": ""),          // 4
+              (flags & XRDEXP_NOCHECK  ? " nocheck" : " check"),    // 5
+              (flags & XRDEXP_NODREAD  ? " nodread" : " dread"),    // 6
+              (flags & XRDEXP_MIG      ? " mig"     : " nomig"),    // 7
+     (!(flags & XRDEXP_MMAP)           ? ""         :               // 8
               (flags & XRDEXP_MKEEP    ? " mkeep"   : " nomkeep")),
-     (!(flags & XRDEXP_MMAP)           ? ""         :               // 10
+     (!(flags & XRDEXP_MMAP)           ? ""         :               // 9
               (flags & XRDEXP_MLOK     ? " mlock"   : " nomlock")),
-              (flags & XRDEXP_MMAP     ? " mmap"    : ""),          // 11
-              (flags & XRDEXP_RCREATE  ? " rcreate" : " norcreate"),// 12
-              (flags & XRDEXP_PURGE    ? " purge"   : " nopurge"),  // 13
-              (flags & XRDEXP_STAGE    ? " stage"   : " nostage"),  // 14
-              (flags & XRDEXP_NOXATTR  ? " noxattr" : " xattr")     // 15
+              (flags & XRDEXP_MMAP     ? " mmap"    : ""),          // 10
+              (flags & XRDEXP_RCREATE  ? " rcreate" : " norcreate"),// 11
+              (flags & XRDEXP_PURGE    ? " purge"   : " nopurge"),  // 12
+              (flags & XRDEXP_STAGE    ? " stage"   : " nostage"),  // 13
+              (flags & XRDEXP_NOXATTR  ? " noxattr" : " xattr")     // 14
               );
      Eroute.Say(buff); 
 }
