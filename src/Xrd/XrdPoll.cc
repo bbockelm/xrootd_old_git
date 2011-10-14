@@ -23,9 +23,9 @@
 #define  TRACELINK lp
 #include "Xrd/XrdTrace.hh"
 
-#if   defined(_DEVPOLL)
+#if defined( __solaris__ )
 #include "Xrd/XrdPollDev.hh"
-#elif defined(_EPOLL) && defined(__linux__)
+#elif defined( __linux__ )
 #include "Xrd/XrdPollE.hh"
 #else
 #include "Xrd/XrdPollPoll.hh"
@@ -336,10 +336,9 @@ int XrdPoll::Stats(char *buff, int blen, int do_sync)
 /******************************************************************************/
 /*              I m p l e m e n t a t i o n   S p e c i f i c s               */
 /******************************************************************************/
-  
-#if   defined(_DEVPOLL)
+#if defined( __solaris__ )  
 #include "Xrd/XrdPollDev.icc"
-#elif defined(_EPOLL) && defined(__linux__)
+#elif defined( __linux__ )
 #include "Xrd/XrdPollE.icc"
 #else
 #include "Xrd/XrdPollPoll.icc"

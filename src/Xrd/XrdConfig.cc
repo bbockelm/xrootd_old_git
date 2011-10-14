@@ -244,8 +244,8 @@ int XrdConfig::Configure(int argc, char **argv)
                  break;
        case 'k': n = strlen(optarg)-1;
                  retc = (isalpha(optarg[n])
-                        ? XrdOuca2x::a2sz(*XrdLog,"keep size", optarg,&logkeep)
-                        : XrdOuca2x::a2ll(*XrdLog,"keep count",optarg,&logkeep));
+                        ? XrdOuca2x::a2sz(Log,"keep size", optarg,&logkeep)
+                        : XrdOuca2x::a2ll(Log,"keep count",optarg,&logkeep));
                  if (retc) Usage(1);
                  if (!isalpha(optarg[n])) logkeep = -logkeep;
                  break;
@@ -300,7 +300,7 @@ int XrdConfig::Configure(int argc, char **argv)
 #else
       if (pipe( pipeFD ) == -1)
          {Log.Emsg("Config", errno, "create a pipe"); exit(17);}
-      XrdOucUtils::Undercover(*XrdLog, !logfn, pipeFD);
+      XrdOucUtils::Undercover(Log, !logfn, pipeFD);
 #endif
    }
 
@@ -737,6 +737,7 @@ int XrdConfig::Setup(char *dfltp)
                 {ProtInfo.WANPort = PortWAN;
                  ProtInfo.WANWSize= Wan_Blen;
                 } else ProtInfo.WANPort = ProtInfo.WANWSize = 0;
+             if (!NetTCPlep) XrdLink::Init(NetTCP[0]);
              XrdOucEnv::Export("XRDPORT", ProtInfo.Port);
              lastPort = cp->port;
             }
@@ -752,7 +753,6 @@ int XrdConfig::Setup(char *dfltp)
    ProtInfo.Port = NetTCP[0]->Port();
    PortTCP = ProtInfo.Port;
    XrdOucEnv::Export("XRDPORT", PortTCP);
-   XrdLink::Init(NetTCP[0]);
 
 // Now check if we have to setup automatic reporting
 //
