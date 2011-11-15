@@ -29,9 +29,10 @@ add_executable(
 target_link_libraries(
   XrdCnsd
   XrdCnsLib
-  XrdUtils
   XrdClient
-  XrdServer )
+  XrdServer
+  XrdUtils
+  ${EXTRA_LIBS} )
 
 #-------------------------------------------------------------------------------
 # cns_ssi
@@ -46,7 +47,8 @@ add_executable(
 target_link_libraries(
   cns_ssi
   XrdUtils
-  XrdCnsLib )
+  XrdCnsLib
+  ${EXTRA_LIBS} )
 
 #-------------------------------------------------------------------------------
 # Install

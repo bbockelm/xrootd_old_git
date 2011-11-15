@@ -34,6 +34,8 @@
 #define XROOTD_MON_PATH    (XROOTD_MON_IO   | XROOTD_MON_FILE)
 #define XROOTD_MON_REDR   128
 #define XROOTD_MON_IOV    256
+#define XROOTD_MON_MIGR   512
+#define XROOTD_MON_PURGE 1024
 
 class XrdScheduler;
   
@@ -77,7 +79,7 @@ static XrdXrootdMonitor *Alloc(int force=0);
 
        void              Close(kXR_unt32 dictid, long long rTot, long long wTot);
 
-       void              Disc(kXR_unt32 dictid, int csec);
+       void              Disc(kXR_unt32 dictid, int csec, char Flags=0);
 
 static void              Defaults(char *dest1, int m1, char *dest2, int m2);
 static void              Defaults(int msz, int rsz, int wsz,
@@ -99,6 +101,8 @@ static XrdXrootdMonitor *altMon;
 static char              monIO;
 static char              monINFO;
 static char              monFILE;
+static char              monMIGR;
+static char              monPURGE;
 static char              monREDR;
 static char              monSTAGE;
 static char              monUSER;

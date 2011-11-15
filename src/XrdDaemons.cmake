@@ -32,10 +32,11 @@ add_executable(
 
 target_link_libraries(
   xrootd
-  XrdServer
   XrdMain
   XrdOfs
-  dl )
+  dl
+  ${EXTRA_LIBS}
+  ${SOCKET_LIBRARY} )
 
 #-------------------------------------------------------------------------------
 # cmsd
@@ -73,9 +74,9 @@ add_executable(
 
 target_link_libraries(
   cmsd
-  XrdUtils
   XrdServer
-  XrdMain )
+  XrdMain
+  ${EXTRA_LIBS} )
 
 #-------------------------------------------------------------------------------
 # Install

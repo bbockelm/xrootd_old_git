@@ -10,8 +10,9 @@ add_executable(
 
 target_link_libraries(
   xrdadler32
-  XrdClient
   XrdPosix
+  XrdClient
+  XrdUtils
   ${ZLIB_LIBRARY} )
 
 #-------------------------------------------------------------------------------
@@ -34,7 +35,9 @@ add_executable(
 
 target_link_libraries(
   mpxstats
-  XrdUtils )
+  XrdUtils
+  ${EXTRA_LIBS}
+  ${SOCKET_LIBRARY} )
 
 #-------------------------------------------------------------------------------
 # wait41
@@ -45,7 +48,8 @@ add_executable(
 
 target_link_libraries(
   wait41
-  XrdUtils )
+  XrdUtils
+  ${EXTRA_LIBS} )
 
 #-------------------------------------------------------------------------------
 # Install

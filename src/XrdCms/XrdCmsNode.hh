@@ -47,6 +47,8 @@ public:
        char   isPerm;       //4 Set when node is permanently bound
        char   isReserved[2];
        char   RoleID;       // The converted XrdCmsRole::RoleID
+       char   TimeZone;     // Time zone in +UTC-
+       char   TZValid;      // Time zone has been set
 
 static const char allowsRW = 0x01; // in isRW -> Server allows r/w access
 static const char allowsSS = 0x02; // in isRW -> Server can stage data
@@ -124,6 +126,13 @@ inline int   Send(const struct iovec *iov, int iovcnt, int iotot=0)
        void  setShare(int shrval)
                      {if (shrval > 99) Shrem = Shrip = Share = 0;
                          else {Shrem = Share = shrval; Shrip = 100 - shrval;}
+                     }
+
+       int   setTZone(int tZone)
+                     {TimeZone = tZone & 0x0f;
+                      if (tZone & 0x10) TimeZone = -TimeZone;
+                      TZValid = (tZone != 0);
+                      return TimeZone;
                      }
 
 inline void  setSlot(short rslot) {RSlot = rslot;}

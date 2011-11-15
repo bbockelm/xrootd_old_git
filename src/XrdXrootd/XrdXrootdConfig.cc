@@ -739,7 +739,7 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
                                       [flush [io] <sec>] [window <sec>]
                                       dest [Events] <host:port>
 
-   Events: [files] [info] [io] [iov] [redir] [stage] [user] <host:port>
+   Events: [files] [info] [io] [iov] [migr] [purge] [redir] [stage] [user]
 
          all                enables monitoring for all connections.
          auth               add authentication information to "user".
@@ -754,6 +754,8 @@ int XrdXrootdProtocol::xlog(XrdOucStream &Config)
          info               monitors client appid and info requests.
          io                 monitors I/O requests, and files open/close events.
          iov                like I/O but also unwinds vector reads.
+         migr               monitors file migr  operations
+         purge              monitors file purge operations
          redir              monitors request redirections
          stage              monitors file stage operations
          user               monitors user login and disconnect events.
@@ -817,6 +819,8 @@ int XrdXrootdProtocol::xmon(XrdOucStream &Config)
               else if (!strcmp("io",   val)) monMode[i] |=  XROOTD_MON_IO;
               else if (!strcmp("iov",  val)) monMode[i] |= (XROOTD_MON_IOV
                                                            |XROOTD_MON_IOV);
+              else if (!strcmp("purge",val)) monMode[i] |=  XROOTD_MON_PURGE;
+              else if (!strcmp("migr", val)) monMode[i] |=  XROOTD_MON_MIGR;
               else if (!strcmp("redir",val)) monMode[i] |=  XROOTD_MON_REDR;
               else if (!strcmp("stage",val)) monMode[i] |=  XROOTD_MON_STAGE;
               else if (!strcmp("user", val)) monMode[i] |=  XROOTD_MON_USER;
@@ -960,7 +964,7 @@ int XrdXrootdProtocol::xprep(XrdOucStream &Config)
   
 /* Function: xred
 
-   Purpose:  To parse the directive: redirect <host>:<port> {<funcs>|<path>}
+   Purpose:  To parse the directive: redirect <host>:<port> {<funcs>|[?]<path>}
 
              <funcs>   are one or more of the following functions that will
                        be immediately redirected to <host>:<port>. Each function
@@ -970,7 +974,9 @@ int XrdXrootdProtocol::xprep(XrdOucStream &Config)
 
              <paths>   redirects the client when an attempt is made to open
                        one of absolute <paths>. Up to 4 different redirect
-                       combinations may be specified.
+                       combinations may be specified. When prefixed by "?"
+                       then the redirect applies to any operation on the path
+                       that results in an ENOENT error.
 
   Output: 0 upon success or !0 upon failure.
 */
@@ -980,6 +986,7 @@ int XrdXrootdProtocol::xred(XrdOucStream &Config)
     static struct rediropts {const char *opname; RD_func opval;} rdopts[] =
        {
         {"chmod",    RD_chmod},
+        {"chksum",   RD_chksum},
         {"dirlist",  RD_dirlist},
         {"locate",   RD_locate},
         {"mkdir",    RD_mkdir},
@@ -988,10 +995,12 @@ int XrdXrootdProtocol::xred(XrdOucStream &Config)
         {"prepstage",RD_prepstg},
         {"rm",       RD_rm},
         {"rmdir",    RD_rmdir},
-        {"stat",     RD_stat}
+        {"stat",     RD_stat},
+        {"trunc",    RD_trunc}
        };
     char rHost[512], *val, *pp;
     int i, k, neg, rPort, numopts = sizeof(rdopts)/sizeof(struct rediropts);
+    int isQ = 0;
 
 // Get the host and port
 //
@@ -1010,14 +1019,26 @@ int XrdXrootdProtocol::xred(XrdOucStream &Config)
     if (!(val = Config.GetWord()))
        {eDest.Emsg("config", "redirect option not specified"); return 1;}
 
-    if (*val == '/')
-       {for (k = static_cast<int>(RD_open1); k < RD_Num; k++)
+    if (*val == '/' || (isQ = (*val == '?')))
+       {if (isQ)
+           {RQLxist = 1;
+            if (!(val = Config.GetWord()))
+               {eDest.Emsg("Config", "redirect path not specified.");
+                return 1;
+               }
+            if (*val != '/')
+               {eDest.Emsg("Config", "non-absolute redirect path -", val);
+                return 1;
+               }
+           }
+        for (k = static_cast<int>(RD_open1); k < RD_Num; k++)
             if (!Route[k].Host
             || (strcmp(Route[k].Host, rHost) && Route[k].Port == rPort)) break;
         if (k >= RD_Num)
            {eDest.Emsg("Config", "too many diffrent path redirects"); return 1;}
         xred_set(RD_func(k), rHost, rPort);
-        do {RPList.Insert(val, k, 0);
+        do {if (isQ) RQList.Insert(val, k, 0);
+               else  RPList.Insert(val, k, 0);
             if ((val = Config.GetWord()) && *val != '/')
                {eDest.Emsg("Config", "non-absolute redirect path -", val);
                 return 1;

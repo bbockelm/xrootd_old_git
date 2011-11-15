@@ -70,8 +70,6 @@ struct XrdXrootdSessID
 #define CRED (const XrdSecEntity *)Client
 
 #define TRACELINK Link
-
-#define UPSTATS(x) SI->statsMutex.Lock(); SI->x++; SI->statsMutex.UnLock()
  
 /******************************************************************************/
 /*                              d o _ A d m i n                               */
@@ -128,7 +126,7 @@ int XrdXrootdProtocol::do_Auth()
    if (!(rc = AuthProt->Authenticate(&cred, &parm, &eMsg)))
       {const char *msg = (Status & XRD_ADMINUSER ? "admin login as"
                                                  : "login as");
-       rc = Response.Send(); Status &= ~XRD_NEED_AUTH;
+       rc = Response.Send(); Status &= ~XRD_NEED_AUTH; SI->Bump(SI->LoginAU);
        Client = &AuthProt->Entity; numReads = 0; strcpy(Entity.prot, "host");
        if (Monitor && XrdXrootdMonitor::monUSER) MonAuth();
        if (Client->name) 
@@ -160,6 +158,7 @@ int XrdXrootdProtocol::do_Auth()
 
 // We got an error, bail out.
 //
+   SI->Bump(SI->AuthBad);
    eText = eMsg.getErrText(rc);
    eDest.Emsg("Xeq", "User authentication failed;", eText);
    return Response.Send(kXR_NotAuthorized, eText);
@@ -179,7 +178,7 @@ int XrdXrootdProtocol::do_Bind()
 
 // Update misc stats count
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Find the link we are to bind to
 //
@@ -294,7 +293,7 @@ int XrdXrootdProtocol::do_Chmod()
 
 // An error occured
 //
-   return fsError(rc, myError);
+   return fsError(rc, myError, argp->buff);
 }
 
 /******************************************************************************/
@@ -306,6 +305,11 @@ int XrdXrootdProtocol::do_CKsum(int canit)
    const char *opaque;
    char *args[3];
    int rc;
+
+// Check for static routing
+//
+   if (Route[RD_chksum].Port)
+      return Response.Send(kXR_redirect,Route[RD_chksum].Port,Route[RD_chksum].Host);
 
 // Check if we support this operation
 //
@@ -397,7 +401,7 @@ int XrdXrootdProtocol::do_Close()
 
 // Keep statistics
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Find the file object
 //
@@ -460,7 +464,7 @@ int XrdXrootdProtocol::do_Dirlist()
 // First open the directory
 //
    if ((rc = dp->open(argp->buff, CRED, opaque)))
-      {rc = fsError(rc, dp->error); delete dp; return rc;}
+      {rc = fsError(rc, dp->error, argp->buff); delete dp; return rc;}
 
 // Start retreiving each entry and place in a local buffer with a trailing new
 // line character (the last entry will have a null byte). If we cannot fit a
@@ -510,7 +514,7 @@ int XrdXrootdProtocol::do_Endsess()
 
 // Update misc stats count
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Extract out the FD and Instance from the session ID
 //
@@ -559,7 +563,7 @@ int XrdXrootdProtocol::do_Getfile()
 
 // Keep Statistics
 //
-   UPSTATS(getfCnt);
+   SI->Bump(SI->getfCnt);
 
 // Unmarshall the data
 //
@@ -618,7 +622,7 @@ int XrdXrootdProtocol::do_Locate()
 //
    rc = osFS->fsctl(fsctl_cmd, fn, myError, CRED);
    TRACEP(FS, "rc=" <<rc <<" locate " <<fn);
-   return fsError(rc, myError);
+   return fsError(rc, myError, Path);
 }
   
 /******************************************************************************/
@@ -635,7 +639,7 @@ int XrdXrootdProtocol::do_Login()
 
 // Keep Statistics
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->LoginAT);
 
 // Unmarshall the data
 //
@@ -691,13 +695,13 @@ int XrdXrootdProtocol::do_Login()
                      }
           else {rc = (sendSID ? Response.Send((void *)&sessID, sizeof(sessID))
                               : Response.Send());
-                Status = XRD_LOGGEDIN;
+                Status = XRD_LOGGEDIN; SI->Bump(SI->LoginUA);
                 if (pp) {Entity.tident = Link->ID; Client = &Entity;}
                }
       }
       else {rc = (sendSID ? Response.Send((void *)&sessID, sizeof(sessID))
                           : Response.Send());
-            Status = XRD_LOGGEDIN;
+            Status = XRD_LOGGEDIN; SI->Bump(SI->LoginUA);
            }
 
 // Allocate a monitoring object, if needed for this connection
@@ -720,6 +724,7 @@ int XrdXrootdProtocol::do_Login()
    if (!(Status & XRD_NEED_AUTH))
       eDest.Log(SYS_LOG_01, "Xeq", Link->ID, (Status & XRD_ADMINUSER
                             ? "admin login" : "login"));
+
    return rc;
 }
 
@@ -754,7 +759,7 @@ int XrdXrootdProtocol::do_Mkdir()
 
 // An error occured
 //
-   return fsError(rc, myError);
+   return fsError(rc, myError, argp->buff);
 }
 
 /******************************************************************************/
@@ -801,7 +806,7 @@ int XrdXrootdProtocol::do_Mv()
 
 // An error occured
 //
-   return fsError(rc, myError);
+   return fsError(rc, myError, oldp);
 }
 
 /******************************************************************************/
@@ -951,7 +956,7 @@ int XrdXrootdProtocol::do_Open()
 
 // Keep Statistics
 //
-   UPSTATS(openCnt);
+   SI->Bump(SI->openCnt);
 
 // Unmarshall the data
 //
@@ -988,7 +993,7 @@ int XrdXrootdProtocol::do_Open()
    if ((opts & kXR_async || as_force) && !as_noaio)
                                       {*op++ = 'a'; isAsync = '1';}
    if (opts & kXR_refresh)            {*op++ = 's'; openopts |= SFS_O_RESET;
-                                       UPSTATS(Refresh);
+                                       SI->Bump(SI->Refresh);
                                       }
    if (opts & kXR_retstat)            {*op++ = 't'; retStat = 1;}
    if (opts & kXR_posc)               {*op++ = 'p'; openopts |= SFS_O_POSC;}
@@ -1024,7 +1029,7 @@ int XrdXrootdProtocol::do_Open()
 //
    if ((rc = fp->open(fn, (XrdSfsFileOpenMode)openopts,
                      (mode_t)mode, CRED, opaque)))
-      {rc = fsError(rc, fp->error); delete fp; return rc;}
+      {rc = fsError(rc, fp->error, fn); delete fp; return rc;}
 
 // Obtain a hyper file object
 //
@@ -1131,7 +1136,7 @@ int XrdXrootdProtocol::do_Ping()
 
 // Keep Statistics
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // This is a basic nop
 //
@@ -1264,7 +1269,7 @@ int XrdXrootdProtocol::do_Protocol(int retRole)
 
 // Keep Statistics
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Determine which response to provide
 //
@@ -1288,7 +1293,7 @@ int XrdXrootdProtocol::do_Putfile()
 
 // Keep Statistics
 //
-   UPSTATS(putfCnt);
+   SI->Bump(SI->putfCnt);
 
 // Unmarshall the data
 //
@@ -1381,7 +1386,7 @@ int XrdXrootdProtocol::do_Qfh()
 
 // Update misc stats count
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Perform the appropriate query
 //
@@ -1722,7 +1727,7 @@ int XrdXrootdProtocol::do_ReadV()
    struct readahead_list rdVec[maxRvecsz];
    long long totLen;
    int rdVecNum, rdVecLen = Request.header.dlen;
-   int i, k, rc, xframt, Quantum, Qleft, rdvamt, rvSeq;
+   int i, k, rc, xframt, Quantum, Qleft, rdvamt;
    int ioMon = (monIO  > 1) && (Monitor != 0);
    int rvMon = (monIO != 0) && (Monitor != 0);
    char *buffp;
@@ -1861,7 +1866,7 @@ int XrdXrootdProtocol::do_Rm()
 
 // An error occured
 //
-   return fsError(rc, myError);
+   return fsError(rc, myError, argp->buff);
 }
 
 /******************************************************************************/
@@ -1892,7 +1897,7 @@ int XrdXrootdProtocol::do_Rmdir()
 
 // An error occured
 //
-   return fsError(rc, myError);
+   return fsError(rc, myError, argp->buff);
 }
 
 /******************************************************************************/
@@ -2025,7 +2030,7 @@ int XrdXrootdProtocol::do_Stat()
        TRACEP(FS, "rc=" <<rc <<" stat " <<argp->buff);
        if (rc == SFS_OK) return Response.Send(xxBuff, StatGen(buf, xxBuff));
       }
-   return fsError(rc, myError);
+   return fsError(rc, myError, argp->buff);
 }
 
 /******************************************************************************/
@@ -2041,6 +2046,11 @@ int XrdXrootdProtocol::do_Statx()
    mode_t mode;
    XrdOucErrInfo myError(Link->ID, &statxCB, ReqID.getID());
    XrdOucTokenizer pathlist(argp->buff);
+
+// Check for static routing
+//
+   if (Route[RD_stat].Port) 
+      return Response.Send(kXR_redirect,Route[RD_stat].Port,Route[RD_stat].Host);
 
 // Cycle through all of the paths in the list
 //
@@ -2074,7 +2084,7 @@ int XrdXrootdProtocol::do_Sync()
 
 // Keep Statistics
 //
-   UPSTATS(syncCnt);
+   SI->Bump(SI->syncCnt);
 
 // Find the file object
 //
@@ -2114,7 +2124,7 @@ int XrdXrootdProtocol::do_Truncate()
       {
        // Update misc stats count
        //
-          UPSTATS(miscCnt);
+          SI->Bump(SI->miscCnt);
 
       // Find the file object
       //
@@ -2134,6 +2144,11 @@ int XrdXrootdProtocol::do_Truncate()
        XrdOucErrInfo myError(Link->ID);
        const char *opaque;
 
+    // Check for static routing
+    //
+       if (Route[RD_trunc].Port) return Response.Send(kXR_redirect,
+                                 Route[RD_trunc].Port,Route[RD_trunc].Host);
+
     // Verify the path and extract out the opaque information
     //
        if (rpCheck(argp->buff,&opaque)) return rpEmsg("Truncating",argp->buff);
@@ -2144,7 +2159,7 @@ int XrdXrootdProtocol::do_Truncate()
        rc = osFS->truncate(argp->buff, (XrdSfsFileOffset)theOffset, myError,
                            CRED, opaque);
        TRACEP(FS, "rc=" <<rc <<" trunc " <<theOffset <<' ' <<argp->buff);
-       if (SFS_OK != rc) return fsError(rc, myError);
+       if (SFS_OK != rc) return fsError(rc, myError, argp->buff);
    }
 
 // Respond that all went well
@@ -2312,9 +2327,9 @@ int XrdXrootdProtocol::do_WriteNone()
 /*                               f s E r r o r                                */
 /******************************************************************************/
   
-int XrdXrootdProtocol::fsError(int rc, XrdOucErrInfo &myError)
+int XrdXrootdProtocol::fsError(int rc, XrdOucErrInfo &myError, const char *Path)
 {
-   int ecode;
+   int ecode, popt;
    const char *eMsg = myError.getErrText(ecode);
 
 // Process standard errors
@@ -2322,6 +2337,9 @@ int XrdXrootdProtocol::fsError(int rc, XrdOucErrInfo &myError)
    if (rc == SFS_ERROR)
       {SI->errorCnt++;
        rc = XProtocol::mapError(ecode);
+       if (Path && (rc == kXR_NotFound) && RQLxist
+       &&  (popt = RQList.Validate(Path)))
+          return Response.Send(kXR_redirect,Route[popt].Port,Route[popt].Host);
        return Response.Send((XErrorCode)rc, eMsg);
       }
 

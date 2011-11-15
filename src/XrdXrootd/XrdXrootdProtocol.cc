@@ -34,6 +34,7 @@
 XrdOucTrace          *XrdXrootdTrace;
 
 XrdXrootdXPath        XrdXrootdProtocol::RPList;
+XrdXrootdXPath        XrdXrootdProtocol::RQList;
 XrdXrootdXPath        XrdXrootdProtocol::XPList;
 XrdSfsFileSystem     *XrdXrootdProtocol::osFS;
 char                 *XrdXrootdProtocol::FSLib    = 0;
@@ -82,6 +83,7 @@ int                   XrdXrootdProtocol::as_syncw     = 0;
 
 const char           *XrdXrootdProtocol::myInst  = 0;
 const char           *XrdXrootdProtocol::TraceID = "Protocol";
+int                   XrdXrootdProtocol::RQLxist = 0;
 int                   XrdXrootdProtocol::myPID = static_cast<int>(getpid());
 
 int                   XrdXrootdProtocol::myRole = 0;
@@ -96,12 +98,6 @@ struct XrdXrootdProtocol::RD_Table XrdXrootdProtocol::Route[RD_Num] = {{0,0}};
 XrdObjectQ<XrdXrootdProtocol>
             XrdXrootdProtocol::ProtStack("ProtStack",
                                        "xrootd protocol anchor");
-
-/******************************************************************************/
-/*                         L o c a l   D e f i n e s                          */
-/******************************************************************************/
-  
-#define UPSTATS(x) SI->statsMutex.Lock(); SI->x++; SI->statsMutex.UnLock()
 
 /******************************************************************************/
 /*                       P r o t o c o l   L o a d e r                        */
@@ -288,7 +284,7 @@ int dlen, rc;
 
 // Bind the protocol to the link and return the protocol
 //
-   UPSTATS(Count);
+   SI->Bump(SI->Count);
    xp->Link = lp;
    xp->Response.Set(lp);
    strcpy(xp->Entity.prot, "host");
@@ -440,7 +436,7 @@ int XrdXrootdProtocol::Process2()
 
 // Update misc stats count
 //
-   UPSTATS(miscCnt);
+   SI->Bump(SI->miscCnt);
 
 // Now process whatever we have
 //
@@ -478,7 +474,13 @@ int XrdXrootdProtocol::Process2()
   
 void XrdXrootdProtocol::Recycle(XrdLink *lp, int csec, const char *reason)
 {
-   char *sfxp, ctbuff[24], buff[128];
+   char *sfxp, ctbuff[24], buff[128], Flags = (reason ? XROOTD_MON_FORCED : 0);
+   const char *What;
+
+// Check for disconnect or unbind
+//
+   if (Status == XRD_BOUNDPATH) {What = "unbind"; Flags |= XROOTD_MON_BOUNDP;}
+      else What = "disc";
 
 // Document the disconnect or undind
 //
@@ -488,8 +490,7 @@ void XrdXrootdProtocol::Recycle(XrdLink *lp, int csec, const char *reason)
                     sfxp = buff;
                    } else sfxp = ctbuff;
 
-       eDest.Log(SYS_LOG_02, "Xeq", lp->ID,
-             (Status == XRD_BOUNDPATH ? (char *)"unbind":(char *)"disc"), sfxp);
+       eDest.Log(SYS_LOG_02, "Xeq", lp->ID, (char *)What, sfxp);
       }
 
 // If this is a bound stream then we cannot release the resources until
@@ -510,7 +511,7 @@ void XrdXrootdProtocol::Recycle(XrdLink *lp, int csec, const char *reason)
 
 // Check if we should monitor disconnects
 //
-   if (XrdXrootdMonitor::monUSER && Monitor) Monitor->Disc(monUID, csec);
+   if (XrdXrootdMonitor::monUSER && Monitor) Monitor->Disc(monUID, csec, Flags);
 
 // Release all appendages
 //
@@ -594,7 +595,7 @@ void XrdXrootdProtocol::Cleanup()
 
 // Delete the FTab if we have it
 //
-   if (FTab) {delete FTab; FTab = 0;}
+   if (FTab) {FTab->Recycle(monFILE ? Monitor : 0); FTab = 0;}
 
 // Handle parallel stream cleanup. The session stream cannot be closed if
 // there is any queued activity on subordinate streams. A subordinate

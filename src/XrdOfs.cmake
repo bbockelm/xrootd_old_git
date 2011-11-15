@@ -26,14 +26,14 @@ add_library(
 
 target_link_libraries(
   XrdOfs
-  XrdUtils
   XrdServer )
 
 set_target_properties(
   XrdOfs
   PROPERTIES
   VERSION   ${XRD_OFS_VERSION}
-  SOVERSION ${XRD_OFS_SOVERSION} )
+  SOVERSION ${XRD_OFS_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # Install

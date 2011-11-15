@@ -22,14 +22,14 @@ add_library(
 
 target_link_libraries(
   XrdPss
-  XrdPosix
   XrdFfs )
 
 set_target_properties(
   XrdPss
   PROPERTIES
   VERSION   ${XRD_PSS_VERSION}
-  SOVERSION ${XRD_PSS_SOVERSION} )
+  SOVERSION ${XRD_PSS_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # The XrdBwm lib
@@ -47,14 +47,14 @@ add_library(
 
 target_link_libraries(
   XrdBwm
-  XrdUtils
   XrdServer )
 
 set_target_properties(
   XrdBwm
   PROPERTIES
   VERSION   ${XRD_BWM_VERSION}
-  SOVERSION ${XRD_BWM_SOVERSION} )
+  SOVERSION ${XRD_BWM_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # Install

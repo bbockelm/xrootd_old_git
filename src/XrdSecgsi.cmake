@@ -28,15 +28,14 @@ add_library(
 
 target_link_libraries(
   XrdSecgsi
-  XrdCrypto
-  XrdCryptossl
-  XrdUtils )
+  XrdCryptossl )
 
 set_target_properties(
   XrdSecgsi
   PROPERTIES
   VERSION   ${XRD_SEC_GSI_VERSION}
-  SOVERSION ${XRD_SEC_GSI_SOVERSION} )
+  SOVERSION ${XRD_SEC_GSI_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # The XrdSecgsiGMAPLDAP library
@@ -48,14 +47,14 @@ add_library(
 
 target_link_libraries(
   XrdSecgsiGMAPLDAP
-  XrdSecgsi
-  XrdUtils )
+  XrdSecgsi )
 
 set_target_properties(
   XrdSecgsiGMAPLDAP
   PROPERTIES
   VERSION   ${XRD_SEC_GSI_GMAPLDAP_VERSION}
-  SOVERSION ${XRD_SEC_GSI_GMAPLDAP_SOVERSION} )
+  SOVERSION ${XRD_SEC_GSI_GMAPLDAP_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # The XrdSecgsiAuthzVO library
@@ -73,7 +72,8 @@ set_target_properties(
   XrdSecgsiAuthzVO
   PROPERTIES
   VERSION   ${XRD_SEC_GSI_AUTHZVO_VERSION}
-  SOVERSION ${XRD_SEC_GSI_AUTHZVO_SOVERSION} )
+  SOVERSION ${XRD_SEC_GSI_AUTHZVO_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # The XrdSecgsiGMAPDN library
@@ -85,14 +85,14 @@ add_library(
 
 target_link_libraries(
   XrdSecgsiGMAPDN
-  XrdSecgsi
-  XrdUtils )
+  XrdSecgsi )
 
 set_target_properties(
   XrdSecgsiGMAPDN
   PROPERTIES
   VERSION   ${XRD_SEC_GSI_GMAPDN_VERSION}
-  SOVERSION ${XRD_SEC_GSI_GMAPDN_SOVERSION} )
+  SOVERSION ${XRD_SEC_GSI_GMAPDN_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
 # xrdgsiproxy
@@ -103,8 +103,9 @@ add_executable(
 
 target_link_libraries(
   xrdgsiproxy
-  XrdUtils
-  XrdCryptossl )
+  XrdCryptossl
+  XrdCrypto
+  XrdUtils )
 
 #-------------------------------------------------------------------------------
 # Install

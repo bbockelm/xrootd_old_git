@@ -56,6 +56,7 @@ struct Cmd
 static const int    cmdAlloc = 0x0001;
 static const int    cmdMDP   = 0x0002;
 static const int    cmdStats = 0x0004;
+static const int    cmdXPD   = 0x0008;
 
 int                 xfrIN;
 int                 xfrOUT;
@@ -78,7 +79,6 @@ int                 IdleHold;
 int                 WaitQChk;
 int                 WaitPurge;
 int                 WaitMigr;
-int                 monStage;
 int                 haveCMS;
 int                 isOTO;
 int                 Fix;
@@ -133,6 +133,8 @@ int          Configure(int argc, char **argv, int (*ppf)());
 int          LocalPath  (const char *oldp, char *newp, int newpsz);
 
 int          LogicalPath(const char *oldp, char *newp, int newpsz);
+
+int          NeedsCTA(const char *Lfn);
 
 unsigned
 long long    PathOpts(const char *Lfn);
