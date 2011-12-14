@@ -18,6 +18,7 @@
 #include "XrdSys/XrdWin32.hh"
 #else
 #include <fcntl.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #endif
@@ -248,6 +249,40 @@ int XrdOucUtils::GroupName(gid_t gID, char *gName, int gNsz)
 }
 
 /******************************************************************************/
+/*                                 I d e n t                                  */
+/******************************************************************************/
+
+char *XrdOucUtils::Ident(long long  &mySID, char *iBuff, int iBlen,
+                         const char *iHost, const char *iProg,
+                         const char *iName, int Port)
+{
+   char sName[64], uName[256];
+   long long urSID;
+   int  n, myPid;
+
+// Generate our server ID
+//
+   myPid   = static_cast<int>(getpid());
+   urSID   = static_cast<long long>(myPid)<<16ll | Port;
+   sprintf(sName, "%lld", urSID);
+
+// Get our username
+//
+   if (UserName(getuid(), uName, sizeof(uName)))
+      sprintf(uName, "%d", static_cast<int>(getuid()));
+
+// Create identification record
+//
+   snprintf(iBuff, iBlen, "%s.%d:%s@%s\n&pgm=%s&inst=%s&port=%d",
+                          uName, myPid, sName, iHost, iProg, iName, Port);
+
+// Return a copy of the sid
+//
+   h2nll(urSID, mySID);
+   return strdup(sName);
+}
+  
+/******************************************************************************/
 /*                              I n s t N a m e                               */
 /******************************************************************************/
   
@@ -437,6 +472,30 @@ void XrdOucUtils::Undercover(XrdSysError &eDest, int noLog, int *pipeFD)
 //
   for (myfd = 3; myfd < maxFiles; myfd++)
       if( (!pipeFD || myfd != pipeFD[1]) && myfd != logFD ) close(myfd);
+}
+
+/******************************************************************************/
+/*                              U s e r N a m e                               */
+/******************************************************************************/
+  
+int XrdOucUtils::UserName(uid_t uID, char *uName, int uNsz)
+{
+   struct passwd *pEnt, pStruct;
+   char pBuff[1024];
+   int rc;
+
+// Try to obtain the username. We use this form to make sure we are using
+// the standards conforming version (compilation error otherwise).
+//
+   rc = getpwuid_r(uID, &pStruct, pBuff, sizeof(pBuff), &pEnt);
+   if (rc)    return rc;
+   if (!pEnt) return ESRCH;
+
+// Return length of username or zero if it is too big
+//
+   if (uNsz <= (int)strlen(pEnt->pw_name)) return ENAMETOOLONG;
+   strcpy(uName, pEnt->pw_name);
+   return 0;
 }
 
 /******************************************************************************/

@@ -296,6 +296,8 @@ char *HostName;       //    ->Our hostname
 char *HostPref;       //    ->Our hostname with domain removed
 char *ConfigFN;       //    ->Configuration filename
 char *OssLib;         //    ->Oss Library
+char *CmsLib;         //    ->Cms Library
+char *CmsParms;       //    ->Cms Library Parameters
 
 /******************************************************************************/
 /*                       P r o t e c t e d   I t e m s                        */
@@ -312,6 +314,7 @@ static  int   Emsg(const char *, XrdOucErrInfo  &, int, const char *x,
 static  int   Emsg(const char *, XrdOucErrInfo  &, int, const char *x,
                    const char *y="");
 static  int   fsError(XrdOucErrInfo &myError, int rc);
+const char   *Split(const char *Args, const char **Opq, char *Path, int Plen);
         int   Stall(XrdOucErrInfo  &, int, const char *);
         void  Unpersist(XrdOfsHandle *hP, int xcev=1);
         char *WaitTime(int, char *, int);
@@ -361,12 +364,13 @@ int           ConfigRedir(XrdSysError &Eroute, XrdOucEnv *EnvInfo);
 const char   *Fname(const char *);
 int           Forward(int &Result, XrdOucErrInfo &Resp, struct fwdOpt &Fwd,
                       const char *arg1=0, const char *arg2=0,
-                      const char *arg3=0, const char *arg4=0);
+                      XrdOucEnv  *Env1=0, XrdOucEnv  *Env2=0);
 int           setupAuth(XrdSysError &);
 const char   *theRole(int opts);
 int           xalib(XrdOucStream &, XrdSysError &);
 int           xclib(XrdOucStream &, XrdSysError &);
 int           xcrds(XrdOucStream &, XrdSysError &);
+int           xcmsl(XrdOucStream &, XrdSysError &);
 int           xforward(XrdOucStream &, XrdSysError &);
 int           xmaxd(XrdOucStream &, XrdSysError &);
 int           xnmsg(XrdOucStream &, XrdSysError &);

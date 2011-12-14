@@ -107,7 +107,7 @@ XrdCmsFinderRMT::~XrdCmsFinderRMT()
 /*                             C o n f i g u r e                              */
 /******************************************************************************/
   
-int XrdCmsFinderRMT::Configure(char *cfn, XrdOucEnv *envP)
+int XrdCmsFinderRMT::Configure(const char *cfn, char *Args, XrdOucEnv *envP)
 {
    XrdCmsClientConfig             config;
    XrdCmsClientConfig::configHow  How;
@@ -170,7 +170,7 @@ int XrdCmsFinderRMT::Configure(char *cfn, XrdOucEnv *envP)
 
 int XrdCmsFinderRMT::Forward(XrdOucErrInfo &Resp, const char *cmd, 
                              const char *arg1,    const char *arg2,
-                             const char *arg3,    const char *arg4)
+                             XrdOucEnv  *Env1,    XrdOucEnv  *Env2)
 {
    static XrdSysMutex fwdMutex;
    static struct timeval fwdClk = {time(0),0};
@@ -178,7 +178,7 @@ int XrdCmsFinderRMT::Forward(XrdOucErrInfo &Resp, const char *cmd,
 
    XrdCmsClientMan *Manp;
    XrdCmsRRData     Data;
-   int              iovcnt, is2way, doAll = 0;
+   int              iovcnt, is2way, doAll = 0, opQ1Len = 0, opQ2Len = 0;
    char             Work[xNum*12];
    struct iovec     xmsg[xNum];
 
@@ -195,7 +195,7 @@ int XrdCmsFinderRMT::Forward(XrdOucErrInfo &Resp, const char *cmd,
    else if (!strcmp("trunc", cmd)) Data.Request.rrCode = kYR_trunc;
    else {Say.Emsg("Finder", "Unable to forward '", cmd, "'.");
          Resp.setErrInfo(EINVAL, "Internal error processing file.");
-         return -EINVAL;
+         return SFS_ERROR;
         }
 
 // Fill out the RR data structure
@@ -204,15 +204,15 @@ int XrdCmsFinderRMT::Forward(XrdOucErrInfo &Resp, const char *cmd,
    Data.Path    = (char *)arg1;
    Data.Mode    = (char *)arg2;
    Data.Path2   = (char *)arg2;
-   Data.Opaque  = (char *)arg3;
-   Data.Opaque2 = (char *)arg4;
+   Data.Opaque  = (Env1 ? Env1->Env(opQ1Len) : 0);
+   Data.Opaque2 = (Env2 ? Env2->Env(opQ2Len) : 0);
 
 // Pack the arguments
 //
    if (!(iovcnt = Parser.Pack(int(Data.Request.rrCode), &xmsg[1], &xmsg[xNum],
                               (char *)&Data, Work)))
       {Resp.setErrInfo(EINVAL, "Internal error processing file.");
-       return -EINVAL;
+       return SFS_ERROR;
       }
 
 // Insert the header into the stream
@@ -311,8 +311,7 @@ int XrdCmsFinderRMT::Locate(XrdOucErrInfo &Resp, const char *path, int flags,
 //
    if (flags & SFS_O_LOCATE)
       {Data.Request.rrCode = kYR_locate;
-       Data.Opts = (flags & SFS_O_NOWAIT ? CmsLocateRequest::kYR_asap    : 0)
-                 | (flags & SFS_O_RESET  ? CmsLocateRequest::kYR_refresh : 0);
+       Data.Opts = (flags & SFS_O_NOWAIT ? CmsLocateRequest::kYR_asap    : 0);
       } else
   {     Data.Request.rrCode = kYR_select;
         if (flags & SFS_O_TRUNC) Data.Opts = CmsSelectRequest::kYR_trunc;
@@ -339,7 +338,7 @@ int XrdCmsFinderRMT::Locate(XrdOucErrInfo &Resp, const char *path, int flags,
    if (!(iovcnt = Parser.Pack(int(Data.Request.rrCode), &xmsg[1], &xmsg[xNum],
                               (char *)&Data, Work)))
       {Resp.setErrInfo(EINVAL, "Internal error processing file.");
-       return -EINVAL;
+       return SFS_ERROR;
       }
 
 // Insert the header into the stream
@@ -358,7 +357,8 @@ int XrdCmsFinderRMT::Locate(XrdOucErrInfo &Resp, const char *path, int flags,
 /*                               P r e p a r e                                */
 /******************************************************************************/
   
-int XrdCmsFinderRMT::Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs)
+int XrdCmsFinderRMT::Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs,
+                             XrdOucEnv *envP)
 {
    EPNAME("Prepare")
    static const int   xNum   = 16;
@@ -389,7 +389,7 @@ int XrdCmsFinderRMT::Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs)
        if (!(iovcnt = Parser.Pack(kYR_prepdel, &xmsg[1], &xmsg[xNum],
                                  (char *)&Data, Work)))
           {Resp.setErrInfo(EINVAL, "Internal error processing file.");
-           return -EINVAL;
+           return SFS_ERROR;
           }
        if (!(Manp = SelectManager(Resp, 0))) return ConWait;
        if (Manp->Send((const struct iovec *)&xmsg, iovcnt+1)) return 0;
@@ -469,7 +469,7 @@ int XrdCmsFinderRMT::Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs)
    if (!iovcnt)
       {Say.Emsg("Finder", "Unable to send prepadd; too much data.");
        Resp.setErrInfo(EINVAL, "Internal error processing file.");
-       return -EINVAL;
+       return SFS_ERROR;
       }
 
    Resp.setErrInfo(RepDelay, "");
@@ -578,8 +578,8 @@ int XrdCmsFinderRMT::send2Man(XrdOucErrInfo &Resp, const char *path,
 // A reply was received; process as appropriate
 //
    retc = mp->getResult();
-   if (retc == -EINPROGRESS) retc = Manp->delayResp(Resp);
-      else if (retc == -EAGAIN) retc = Resp.getErrInfo();
+   if (retc == SFS_STARTED) retc = Manp->delayResp(Resp);
+      else if (retc == SFS_STALL) retc = Resp.getErrInfo();
 
 // All done
 //
@@ -660,7 +660,7 @@ int XrdCmsFinderRMT::StartManagers(XrdOucTList *myManList)
 /*                                 S p a c e                                  */
 /******************************************************************************/
   
-int XrdCmsFinderRMT::Space(XrdOucErrInfo &Resp, const char *path)
+int XrdCmsFinderRMT::Space(XrdOucErrInfo &Resp, const char *path, XrdOucEnv *eP)
 {
    static const int xNum   = 4;
 
@@ -679,7 +679,7 @@ int XrdCmsFinderRMT::Space(XrdOucErrInfo &Resp, const char *path)
    if (!(iovcnt = Parser.Pack(kYR_statfs, &xmsg[1], &xmsg[xNum],
                                   (char *)&Data, Work)))
       {Resp.setErrInfo(EINVAL, "Internal error processing file.");
-       return -EINVAL;
+       return SFS_ERROR;
       }
 
 // Insert the header into the stream
@@ -766,7 +766,7 @@ void *XrdCmsStartRsp(void *carg)
        return mp->Start();
       }
   
-int XrdCmsFinderTRG::Configure(char *cfn, XrdOucEnv *envP)
+int XrdCmsFinderTRG::Configure(const char *cfn, char *Ags, XrdOucEnv *envP)
 {
    XrdCmsClientConfig             config;
    XrdCmsClientConfig::configWhat What;

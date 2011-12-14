@@ -509,13 +509,18 @@ void XrdXrootdProtocol::Recycle(XrdLink *lp, int csec, const char *reason)
        if (lp) return;  // Async close
       }
 
-// Check if we should monitor disconnects
-//
-   if (XrdXrootdMonitor::monUSER && Monitor) Monitor->Disc(monUID, csec, Flags);
-
 // Release all appendages
 //
    Cleanup();
+
+// If we are monitoring logins then we are also monitoring disconnects. We do
+// this after cleanup so that close records can be generated before we cut a
+// disconnect record. This then requires we clear the monitor object here.
+// We and the destrcutor are the only ones who call cleanup and a deletion
+// will call the monitor clear method. So, we won't leak memeory.
+//
+   if (Monitor.Logins()) Monitor.Agent->Disc(Monitor.Did, csec, Flags);
+   Monitor.Clear();
 
 // Set fields to starting point (debugging mostly)
 //
@@ -595,7 +600,7 @@ void XrdXrootdProtocol::Cleanup()
 
 // Delete the FTab if we have it
 //
-   if (FTab) {FTab->Recycle(monFILE ? Monitor : 0); FTab = 0;}
+   if (FTab) {FTab->Recycle(Monitor.Files() ? Monitor.Agent : 0); FTab = 0;}
 
 // Handle parallel stream cleanup. The session stream cannot be closed if
 // there is any queued activity on subordinate streams. A subordinate
@@ -619,10 +624,6 @@ void XrdXrootdProtocol::Cleanup()
    SI->statsMutex.Lock();
    SI->readCnt += numReads; SI->writeCnt += numWrites;
    SI->statsMutex.UnLock();
-
-// Handle Monitor
-//
-   if (Monitor) {Monitor->unAlloc(Monitor); Monitor = 0;}
 
 // Handle authentication protocol
 //
@@ -687,10 +688,6 @@ void XrdXrootdProtocol::Reset()
    hcPrev             =13;
    hcNext             =21;
    hcNow              =13;
-   Monitor            = 0;
-   monUID             = 0;
-   monFILE            = 0;
-   monIO              = 0;
    Client             = 0;
    AuthProt           = 0;
    mySID              = 0;

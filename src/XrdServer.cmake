@@ -85,6 +85,11 @@ add_library(
   XrdCms/XrdCmsFinder.cc          XrdCms/XrdCmsFinder.hh
                                   XrdCms/XrdCmsClient.hh
   XrdCms/XrdCmsResp.cc            XrdCms/XrdCmsResp.hh
+  XrdCms/XrdCmsReq.cc             XrdCms/XrdCmsReq.hh
+  XrdCms/XrdCmsRTable.cc          XrdCms/XrdCmsRTable.hh
+                                  XrdCms/XrdCmsTypes.hh
+                                  XrdCms/XrdCmsXmi.hh
+  XrdCms/XrdCmsXmiReq.cc          XrdCms/XrdCmsXmiReq.hh
 
   #-----------------------------------------------------------------------------
   # XrdCks
@@ -110,6 +115,8 @@ add_library(
 target_link_libraries(
   XrdServer
   XrdUtils
+  pthread
+  dl
   ${EXTRA_LIBS} )
 
 set_target_properties(
@@ -167,6 +174,10 @@ install(
   XrdCms/XrdCmsFinder.hh
   XrdCms/XrdCmsClient.hh
   XrdCms/XrdCmsResp.hh
+  XrdCms/XrdCmsReq.hh
+  XrdCms/XrdCmsTypes.hh
+  XrdCms/XrdCmsXmi.hh
+  XrdCms/XrdCmsXmiReq.hh
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdCms )
 
 install(

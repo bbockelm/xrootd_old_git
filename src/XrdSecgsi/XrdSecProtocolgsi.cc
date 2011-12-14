@@ -130,6 +130,7 @@ int    XrdSecProtocolgsi::GMAPCacheTimeOut = -1;
 int    XrdSecProtocolgsi::AuthzCacheTimeOut = 43200;  // 12h, default
 String XrdSecProtocolgsi::SrvAllowedNames;
 int    XrdSecProtocolgsi::VOMSAttrOpt = 1;
+int    XrdSecProtocolgsi::MonInfoOpt = 0;
 //
 // Crypto related info
 int  XrdSecProtocolgsi::ncrypt    = 0;                 // Number of factories
@@ -860,6 +861,14 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
       VOMSAttrOpt = opt.vomsat;
       const char *cvomsat = (VOMSAttrOpt == 1) ? "'extract'" : "'ignore'";
       DEBUG("VOMS attributes options: "<<cvomsat);
+
+      //
+      // Default moninfo option
+      //    0   nothing
+      //    1   DN
+      MonInfoOpt = opt.moninfo;
+      const char *cmoninfo = (MonInfoOpt == 1) ? "DN" : "none";
+      DEBUG("Monitor information options: "<<cmoninfo);
 
       //
       // Parms in the form:
@@ -1764,6 +1773,11 @@ int XrdSecProtocolgsi::Authenticate(XrdSecCredentials *cred,
          }
       }
 
+      // Add the DN as default moninfo if requested (the authz plugin may change this)
+      if (MonInfoOpt > 0) {
+         Entity.moninfo = strdup(hs->Chain->EECname());
+      }
+         
       // Extract the VOMS attrbutes, if required
       if (VOMSAttrOpt > 0) {
          ExtractVOMS(hs->Chain->End(), Entity);
@@ -2323,6 +2337,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       int dlgpxy = 0;
       int authzpxy = 0;
       int vomsat = 1;
+      int moninfo = 0;
       char *op = 0;
       while (inParms.GetLine()) { 
          while ((op = inParms.GetToken())) {
@@ -2374,6 +2389,10 @@ char *XrdSecProtocolgsiInit(const char mode,
                authzpxy = 11;
             } else if (!strncmp(op, "-vomsat:",8)) {
                vomsat = atoi(op+8);
+            } else if (!strcmp(op, "-moninfo")) {
+               moninfo = 1;
+            } else if (!strncmp(op, "-moninfo:",9)) {
+               moninfo = atoi(op+9);
             }
          }
       }
@@ -2390,6 +2409,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       opts.dlgpxy = dlgpxy;
       opts.authzpxy = authzpxy;
       opts.vomsat = vomsat;
+      opts.moninfo = moninfo;
       if (clist.length() > 0)
          opts.clist = (char *)clist.c_str();
       if (certdir.length() > 0)

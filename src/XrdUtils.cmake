@@ -8,6 +8,8 @@ set( XRD_UTILS_VERSION   0.0.1 )
 set( XRD_UTILS_SOVERSION 0 )
 set( XRD_MAIN_VERSION    0.0.1 )
 set( XRD_MAIN_SOVERSION  0 )
+set( XRD_BONJOUR_VERSION    0.0.1 )
+set( XRD_BONJOUR_SOVERSION  0 )
 
 #-------------------------------------------------------------------------------
 # The XrdSys library
@@ -47,6 +49,7 @@ add_library(
   XrdOuc/XrdOucCacheData.cc     XrdOuc/XrdOucCacheData.hh
   XrdOuc/XrdOucCacheReal.cc     XrdOuc/XrdOucCacheReal.hh
                                 XrdOuc/XrdOucCacheSlot.hh
+  XrdOuc/XrdOucCallBack.cc      XrdOuc/XrdOucCallBack.hh
   XrdOuc/XrdOucCRC.cc           XrdOuc/XrdOucCRC.hh
   XrdOuc/XrdOucEnv.cc           XrdOuc/XrdOucEnv.hh
                                 XrdOuc/XrdOucHash.hh
@@ -146,13 +149,46 @@ add_library(
   Xrd/XrdConfig.cc          Xrd/XrdConfig.hh
   Xrd/XrdMain.cc )
 
-target_link_libraries( XrdMain XrdUtils )
+target_link_libraries( XrdMain XrdUtils pthread )
 
 set_target_properties(
   XrdMain
   PROPERTIES
   VERSION   ${XRD_MAIN_VERSION}
   SOVERSION ${XRD_MAIN_SOVERSION} )
+
+#-------------------------------------------------------------------------------
+# Bonjour
+#-------------------------------------------------------------------------------
+if( BUILD_BONJOUR )
+  if( Linux )
+    add_library(
+      XrdBonjour
+      SHARED
+      XrdOuc/XrdOucBonjour.cc          XrdOuc/XrdOucBonjour.hh
+      XrdOuc/XrdOucAvahiBonjour.cc     XrdOuc/XrdOucAvahiBonjour.hh )
+    set( BONJOUR_FACTORY_HEADER XrdOuc/XrdOucAvahiBonjour.hh )
+  elseif( MacOSX )
+    add_library(
+      XrdBonjour
+      SHARED
+      XrdOuc/XrdOucBonjour.cc          XrdOuc/XrdOucBonjour.hh
+      XrdOuc/XrdOucAppleBonjour.cc     XrdOuc/XrdOucAppleBonjour.hh )
+    set( BONJOUR_FACTORY_HEADER XrdOuc/XrdOucAppleBonjour.hh )
+  endif()
+
+  target_link_libraries(
+    XrdBonjour
+    XrdUtils
+    ${BONJOUR_LIBRARIES} )
+
+  set_target_properties(
+    XrdBonjour
+    PROPERTIES
+    VERSION   ${XRD_BONJOUR_VERSION}
+    SOVERSION ${XRD_BONJOUR_SOVERSION}
+    LINK_INTERFACE_LIBRARIES "" )
+endif()
 
 #-------------------------------------------------------------------------------
 # Install
@@ -197,4 +233,11 @@ install(
   PATTERN "*.hh"
   PATTERN "*.icc" )
 
-# FIXME: Bonjour
+if( BUILD_BONJOUR )
+  install(
+    FILES
+    XrdOuc/XrdOucBonjour.hh
+    ${BONJOUR_FACTORY_HEADER}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdOuc )
+endif()
+

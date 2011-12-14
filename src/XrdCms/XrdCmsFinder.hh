@@ -33,22 +33,23 @@ class XrdCmsFinderRMT : public XrdCmsClient
 public:
         void   Added(const char *path, int Pend=0) {}
 
-        int    Configure(char *cfn, XrdOucEnv *EnvInfo);
+        int    Configure(const char *cfn, char *Args, XrdOucEnv *EnvInfo);
 
         int    Forward(XrdOucErrInfo &Resp, const char *cmd,
                        const char *arg1=0,  const char *arg2=0,
-                       const char *arg3=0,  const char *arg4=0);
+                       XrdOucEnv  *Env1=0,  XrdOucEnv  *Env2=0);
 
         int    Locate(XrdOucErrInfo &Resp, const char *path, int flags,
                       XrdOucEnv *Info=0);
 
-        int    Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs);
+        int    Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs,
+                       XrdOucEnv *Info=0);
 
         void   Removed(const char *path) {}
 
         void   setSS(XrdOss *thess) {}
 
-        int    Space(XrdOucErrInfo &Resp, const char *path);
+        int    Space(XrdOucErrInfo &Resp, const char *path, XrdOucEnv *Info=0);
 
                XrdCmsFinderRMT(XrdSysLogger *lp, int whoami=0, int Port=0);
               ~XrdCmsFinderRMT();
@@ -93,22 +94,20 @@ class XrdCmsFinderTRG : public XrdCmsClient
 public:
         void   Added(const char *path, int Pend=0);
 
-        int    Configure(char *cfn, XrdOucEnv *EnvInfo);
-
-        int    Forward(XrdOucErrInfo &Resp,   const char *cmd,
-                       const char    *arg1=0, const char *arg2=0,
-                       const char    *arg3=0, const char *arg4=0) {return 0;}
+        int    Configure(const char *cfn, char *Args, XrdOucEnv *EnvInfo);
 
         int    Locate(XrdOucErrInfo &Resp, const char *path, int flags,
                       XrdOucEnv *Info=0) {return 0;}
 
-        int    Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs) {return 0;}
+        int    Prepare(XrdOucErrInfo &Resp, XrdSfsPrep &pargs,
+                       XrdOucEnv *Info=0) {return 0;}
 
         void   Removed(const char *path);
 
         int    RunAdmin(char *Path);
 
-        int    Space(XrdOucErrInfo &Resp, const char *path) {return 0;}
+        int    Space(XrdOucErrInfo &Resp, const char *path, XrdOucEnv *envP=0)
+                    {return 0;}
 
         void  *Start();
 
@@ -130,9 +129,4 @@ int            isRedir;
 int            isProxy;
 int            Active;
 };
-
-namespace XrdCms
-{
-enum  {IsProxy = 1, IsRedir = 2, IsTarget = 4, IsMeta = 8};
-}
 #endif

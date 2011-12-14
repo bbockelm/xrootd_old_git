@@ -6,6 +6,25 @@ Prerelease Notes
 ================
 
 + **New Features**
+   * Allow the XrdCmsClient interface (a.k.a Finder) to be a plug-in.
+   * Add ofs.cmslib directive to specify the XrdCmsClient plug-in.
+   * Add new class, XrdOucCallBack, to simplify using callbacks in the
+     XrdCmsClient plug-in.
+   * Define the frm.all.monitor directive to enable migration, purging, and
+     staging monitoring. This was originally part of xrootd.monitor but that
+     just was odd. Note that the stage, purge, migr events are no longer
+     accepted on the xrootd.monitor directive.
+   * Collapse he staging (s) and migration (m) records into a single transfer
+     (x) record. While not compatible, the previous implementation was new
+     code and no one actually was capturing these records.
+   * Implement a server identification record (=) that unquely identifies each
+     server. The record can be sent periodically and can be used as a heartbeat.
+   * Add -y option to xrdcp to limit number of extreme copy sources.
+   * Uniformly pass the execution environment to all oss and cms client
+     methods. This is largely for DPM support.
+     WARNING: While this update is binary backwad compatible to existing oss
+              plug-ins it is not source compatible. Plug-in writers will need
+              to modify their oss methods to successfully compile.
    * Allow an automatic redirect when a file operation ends with ENOENT.
      Allow redirects for chsum and trunc operations.
      Both of the above are controlled via the xrootd.redirect directive.
@@ -18,6 +37,12 @@ Prerelease Notes
      path (as opposed to a control path) in the monitoring record.
 
 + **Major bug fixes**
+   * Remove improper initialization that may cause a SEGV in the checksum
+     manager.
+   * Add missing initializer without which we will get a SEGV. This is a fix
+     for the just added monitoring code.
+   * Replace non-reentrant versions of getpwxxx and getgrxxx with reentrant
+     versions. This should prevent spurious uid/gid translations.
    * Handle the sessionID in a consistent and thread-safe manner. This should
      solve the problem of sessions being uselessly terminated making secsss
      less than robust.
@@ -32,6 +57,13 @@ Prerelease Notes
      largely affects xrdcp and some clients on slow links.
 
 + **Minor bug fixes**
+   * Prevent double user map record when monitoring when auth is configured
+     but not actually monitored.
+   * Take timezone changes into account when waiting for midnight. This solves
+     the log rolling problem when changing between DST and standard time.
+   * Fix various issues in xrdcp that could result in a SEGV, especially when
+     using extreme copy mode.
+   * Make sure that monitor write length is really negative.
    * Initialize xattr variable name so that xrdadler32 can fetch previous
      checksum. The error caused xrdadler32 to always recompute the checksum.
    * Add 'k' to the option list. It was wrongly deleted in the last option
@@ -42,3 +74,9 @@ Prerelease Notes
      file into read-only space.
 
 + **Miscellaneous**
+   * Consistently pass the enviroment to the cms client enterface.
+   * Make return codes consistent between synchronous & async XrdCmsClient
+     returns.
+   * Document the XrdCmsClient interface in the header file.
+   * Cut close monitor records before cutting the disconnect record.
+   * Make frm_purged and frm_xfrd use sparate log files.
