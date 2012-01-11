@@ -36,6 +36,16 @@
 #include <XrdSecgsi/XrdSecProtocolgsi.hh>
 #include <XrdSecgsi/XrdSecgsiTrace.hh>
 
+
+/******************************************************************************/
+/*                 T r a c i n g  I n i t  O p t i o n s                      */
+/******************************************************************************/
+#ifndef NODEBUG
+#define POPTS(t,y)    {if (t) {t->Beg(epname); cerr <<y; t->End();}}
+#else
+#define POPTS(t,y)
+#endif
+
 /******************************************************************************/
 /*                           S t a t i c   D a t a                            */
 /******************************************************************************/
@@ -105,12 +115,14 @@ String XrdSecProtocolgsi::SrvCert  = "/etc/grid-security/xrd/xrdcert.pem";
 String XrdSecProtocolgsi::SrvKey   = "/etc/grid-security/xrd/xrdkey.pem";
 String XrdSecProtocolgsi::UsrProxy;
 String XrdSecProtocolgsi::UsrCert  = "/.globus/usercert.pem";
-String XrdSecProtocolgsi::UsrKey   = "/.globus/userkey.pem";;
+String XrdSecProtocolgsi::UsrKey   = "/.globus/userkey.pem";
 String XrdSecProtocolgsi::PxyValid = "12:00";
 int    XrdSecProtocolgsi::DepLength= 0;
 int    XrdSecProtocolgsi::DefBits  = 512;
 int    XrdSecProtocolgsi::CACheck  = 1;
 int    XrdSecProtocolgsi::CRLCheck = 1;
+int    XrdSecProtocolgsi::CRLDownload = 0;
+int    XrdSecProtocolgsi::CRLRefresh = 86400;
 int    XrdSecProtocolgsi::GMAPOpt  = 1;
 bool   XrdSecProtocolgsi::GMAPuseDNname = 0;
 String XrdSecProtocolgsi::DefCrypto= "ssl";
@@ -316,20 +328,27 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
    //
    // Debug an tracing
    Debug = (opt.debug > -1) ? opt.debug : Debug;
-   // Initiate error logging and tracing
-   eDest.logger(&Logger);
-   GSITrace    = new XrdOucTrace(&eDest);
+
+   // We must have the tracing object at this point
+   // (initialized in XrdSecProtocolgsiInit)
+   if (!gsiTrace) {
+      ErrF(erp,kGSErrInit,"tracing object (gsiTrace) not initialized! cannot continue");
+      return Parms;
+   }
    // Set debug mask ... also for auxilliary libs
    int trace = 0;
    if (Debug >= 3) {
       trace = cryptoTRACE_Dump;
+      GSITrace->What = TRACE_ALL;
+   } else if (Debug >= 2) {
+      trace = cryptoTRACE_Debug;
+      GSITrace->What = TRACE_Debug;
       GSITrace->What |= TRACE_Authen;
-      GSITrace->What |= TRACE_Debug;
    } else if (Debug >= 1) {
       trace = cryptoTRACE_Debug;
       GSITrace->What = TRACE_Debug;
    }
-   gsiTrace = GSITrace;
+
    // ... also for auxilliary libs
    XrdSutSetTrace(trace);
    XrdCryptoSetTrace(trace);
@@ -391,10 +410,19 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
    //    1   use if available
    //    2   require
    //    3   require not expired
+   //   12   require; try download if missing
+   //   13   require not expired; try download if missing
    //
+   const char *cocrl[] = { "do-not-care", "use-if-available", "require", "require-not-expired" };
+   const char *codwld[] = { "no", "yes"};
+   if (opt.crl >= 10) {
+      CRLDownload = 1;
+      opt.crl %= 10;
+   }
    if (opt.crl >= 0 && opt.crl <= 3)
       CRLCheck = opt.crl;
-   DEBUG("option CRLCheck: "<<CRLCheck);
+   DEBUG("option CRLCheck: "<<CRLCheck<<" ('"<<cocrl[CRLCheck]<<"'; download? "<<
+                              codwld[CRLDownload]<<")");
 
    //
    // Check existence of CRL directory
@@ -440,6 +468,12 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
    // Default extension for CRL files
    if (opt.crlext)
       DefCRLext = opt.crlext;
+
+   //
+   // Refresh or expiration time for CRLs
+   if (opt.crlrefresh)
+      CRLRefresh = opt.crlrefresh;
+   DEBUG("CRL information refreshed every "<<CRLRefresh<<" secs");
 
    //
    // Server specific options
@@ -498,14 +532,12 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
          return Parms;
       }
       //
-      // Load CA info into cache
-      if (LoadCADir(timestamp) != 0) {
-         ErrF(erp,kGSErrError,"problems loading CA info into cache");
+      // Init CA info cache
+      if (cacheCA.Init(100) != 0) {
+         ErrF(erp,kGSErrError,"problems initializing CA info cache");
          PRINT(erp->getErrText());
          return Parms;
       }
-      if (QTRACE(Authen)) { cacheCA.Dump(); }
-
       //
       // List of supported / wanted ciphers
       if (opt.cipher)
@@ -603,7 +635,8 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
                xsrv = cryptF[i]->X509(SrvCert.c_str(), SrvKey.c_str());
             } else {
                PRINT("problems creating guard to load server certificate '"<<
-                     SrvCert<<"' (euid:"<<geteuid()<<", egid:"<<getegid()<<") <-> (st_uid:"<<st.st_uid<<", st_gid:"<<st.st_gid<<")" );
+                     SrvCert<<"' (euid:"<<geteuid()<<", egid:"<<getegid()<<
+                     ") <-> (st_uid:"<<st.st_uid<<", st_gid:"<<st.st_gid<<")" );
                continue;
             }
          }
@@ -627,6 +660,16 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
             XrdSutBucket *xbck = xsrv->Export();
             if (!xbck) {
                PRINT("problems loading srv cert: cannot export into bucket");
+               continue;
+            }
+            // We must have the issuing CA certificate
+            int rcgetca = 0;
+            if ((rcgetca = GetCA(xsrv->IssuerHash(), cryptF[i])) != 0) {
+               if (rcgetca == -1) {
+                  PRINT("do not have certificate for the issuing CA '"<<xsrv->IssuerHash()<<"'");
+               } else {
+                  PRINT("failed to initialized CRL for issuing CA '"<<xsrv->IssuerHash()<<"'");
+               }
                continue;
             }
             // Ok: save it into the cache
@@ -830,8 +873,10 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
          AuthzPxyWhat = opt.authzpxy / 10;
          AuthzPxyWhere = opt.authzpxy % 10;
          // Some notification
-         const char *capxy_what = (AuthzPxyWhat == 1) ? "'last proxy only'" : "'full proxy chain'";
-         const char *capxy_where = (AuthzPxyWhere == 1) ? "XrdSecEntity.creds" : "XrdSecEntity.endorsements";
+         const char *capxy_what = (AuthzPxyWhat == 1) ? "'last proxy only'"
+                                                      : "'full proxy chain'";
+         const char *capxy_where = (AuthzPxyWhere == 1) ? "XrdSecEntity.creds"
+                                                        : "XrdSecEntity.endorsements";
          DEBUG("Export proxy for authorization in '"<<capxy_where<<"': "<<capxy_what);
          if (hasauthzfun) {
             // Warn user about possible overwriting of Entity.creds or Entity.endorsements
@@ -973,13 +1018,13 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
          SrvAllowedNames = opt.srvnames;
       //
       // Notify
-      DEBUG("using certificate file:         "<<UsrCert);
-      DEBUG("using private key file:         "<<UsrKey);
-      DEBUG("proxy: file:                    "<<UsrProxy);
-      DEBUG("proxy: validity:                "<<PxyValid);
-      DEBUG("proxy: depth of signature path: "<<DepLength);
-      DEBUG("proxy: bits in key:             "<<DefBits);
-      DEBUG("server cert: allowed names:     "<<SrvAllowedNames);
+      TRACE(Authen, "using certificate file:         "<<UsrCert);
+      TRACE(Authen, "using private key file:         "<<UsrKey);
+      TRACE(Authen, "proxy: file:                    "<<UsrProxy);
+      TRACE(Authen, "proxy: validity:                "<<PxyValid);
+      TRACE(Authen, "proxy: depth of signature path: "<<DepLength);
+      TRACE(Authen, "proxy: bits in key:             "<<DefBits);
+      TRACE(Authen, "server cert: allowed names:     "<<SrvAllowedNames);
 
       // We are done
       Parms = (char *)"";
@@ -2108,6 +2153,85 @@ void XrdSecProtocolgsi::ExtractVOMS(XrdCryptoX509 *xp, XrdSecEntity &ent)
 }
 
 /******************************************************************************/
+/*                        E n a b l e T r a c i n g                           */
+/******************************************************************************/
+
+XrdOucTrace *XrdSecProtocolgsi::EnableTracing()
+{
+   // Initiate error logging and tracing
+   EPNAME("EnableTracing");
+
+   eDest.logger(&Logger);
+   GSITrace = new XrdOucTrace(&eDest);
+   return GSITrace;
+}
+
+/******************************************************************************/
+/*                        E n a b l e T r a c i n g                           */
+/******************************************************************************/
+
+void gsiOptions::Print(XrdOucTrace *t)
+{
+   // Dump summary of GSI init options
+   EPNAME("InitOpts");
+
+   // For clients print only if really required (for servers we notified it
+   // always once for all)
+   if ((mode == 'c') && debug <= 0) return;
+   
+   POPTS(t, "*** ------------------------------------------------------------ ***");
+   POPTS(t, " Mode: "<< ((mode == 'c') ? "client" : "server"));
+   POPTS(t, " Debug: "<< debug);
+   POPTS(t, " CA dir: " << (certdir ? certdir : XrdSecProtocolgsi::CAdir));
+   POPTS(t, " CA verification level: "<< ca);
+   POPTS(t, " CRL dir: " << (crldir ? crldir : XrdSecProtocolgsi::CRLdir ));
+   POPTS(t, " CRL extension: " << (crlext ? crlext :  XrdSecProtocolgsi::DefCRLext));
+   POPTS(t, " CRL check level: "<< crl);
+   if (crl > 0) POPTS(t, " CRL refresh time: "<< crlrefresh);
+   if (mode == 'c') {
+      POPTS(t, " Certificate: " << (cert ? cert : XrdSecProtocolgsi::UsrCert));
+      POPTS(t, " Key: " << (key ? key : XrdSecProtocolgsi::UsrKey));
+      POPTS(t, " Proxy file: " << XrdSecProtocolgsi::UsrProxy);
+      POPTS(t, " Proxy validity: " << (valid ? valid : XrdSecProtocolgsi::PxyValid));
+      POPTS(t, " Proxy dep length: " << deplen);
+      POPTS(t, " Proxy bits: " << bits);
+      POPTS(t, " Proxy sign option: "<< sigpxy);
+      POPTS(t, " Proxy delegation option: "<< dlgpxy);
+      POPTS(t, " Allowed server names: "<< (srvnames ? srvnames : "[*/]<target host name>[/*]"));
+   } else {
+      POPTS(t, " Certificate: " << (cert ? cert : XrdSecProtocolgsi::SrvCert));
+      POPTS(t, " Key: " << (key ? key : XrdSecProtocolgsi::SrvKey));
+      POPTS(t, " Proxy delegation option: "<< dlgpxy);
+      if (dlgpxy > 1)
+         POPTS(t, " Template for exported proxy: "<< (exppxy ? exppxy : gUsrPxyDef));
+      POPTS(t, " GRIDmap file: " << (gridmap ? gridmap : XrdSecProtocolgsi::GMAPFile));
+      POPTS(t, " GRIDmap option: "<< ogmap);
+      POPTS(t, " GRIDmap cache entries expiration (secs): "<< gmapto);
+      if (gmapfun) {
+         POPTS(t, " DN mapping function: " << gmapfun);
+         if (gmapfunparms) POPTS(t, " DN mapping function parms: " << gmapfunparms);
+      } else {
+         if (gmapfunparms) POPTS(t, " DN mapping function parms: ignored (no mapping function defined)");
+      }
+      if (authzfun) {
+         POPTS(t, " Authorization function: " << authzfun);
+         if (authzfunparms) POPTS(t, " Authorization function parms: " << authzfunparms);
+         POPTS(t, " Authorization cache entries expiration (secs): " << authzto);
+      } else {
+         if (authzfunparms) POPTS(t, " Authorization function parms: ignored (no authz function defined)");
+      }
+      POPTS(t, " Client proxy availability in XrdSecEntity.endorsement: "<< authzpxy);
+      POPTS(t, " VOMS option: "<< vomsat);
+      POPTS(t, " MonInfo option: "<< moninfo);
+   }
+   // Crypto options
+   POPTS(t, " Crypto modules: "<< (clist ? clist : XrdSecProtocolgsi::DefCrypto));
+   POPTS(t, " Ciphers: "<< (cipher ? cipher : XrdSecProtocolgsi::DefCipher));
+   POPTS(t, " MDigests: "<< (md ? md : XrdSecProtocolgsi::DefMD));
+   POPTS(t, "*** ------------------------------------------------------------ ***");
+}
+
+/******************************************************************************/
 /*              X r d S e c P r o t o c o l g s i I n i t                     */
 /******************************************************************************/
 
@@ -2121,9 +2245,14 @@ char *XrdSecProtocolgsiInit(const char mode,
    // For clients (mode == 'c') we use values in envs.
    // For servers (mode == 's') the command line options are passed through
    // parms.
+   EPNAME("ProtocolgsiInit");
+
    gsiOptions opts;
    char *rc = (char *)"";
    char *cenv = 0;
+
+   // Initiate error logging and tracing
+   gsiTrace = XrdSecProtocolgsi::EnableTracing();
 
    //
    // Clients first
@@ -2179,7 +2308,12 @@ char *XrdSecProtocolgsiInit(const char mode,
       // debug
       cenv = getenv("XrdSecDEBUG");
       if (cenv)
-         if (cenv[0] >= 49 && cenv[0] <= 51) opts.debug = atoi(cenv);
+         if (cenv[0] >= 49 && cenv[0] <= 51) {
+            opts.debug = atoi(cenv);
+         } else {
+            PRINT("unsupported debug value from env XrdSecDEBUG: "<<cenv<<" - setting to 1");
+            opts.debug = 1;
+         }
 
       // directory with CA certificates
       cenv = (getenv("XrdSecGSICADIR") ? getenv("XrdSecGSICADIR")
@@ -2197,6 +2331,11 @@ char *XrdSecProtocolgsiInit(const char mode,
       cenv = getenv("XrdSecGSICRLEXT");
       if (cenv)
          opts.crlext = strdup(cenv);
+
+      // CRL refresh or expiration time
+      cenv = getenv("XrdSecGSICRLRefresh");
+      if (cenv)
+         opts.crlrefresh = atoi(cenv);
 
       // file with user cert
       cenv = (getenv("XrdSecGSIUSERCERT") ? getenv("XrdSecGSIUSERCERT")
@@ -2260,6 +2399,10 @@ char *XrdSecProtocolgsiInit(const char mode,
       // Setup the object with the chosen options
       rc = XrdSecProtocolgsi::Init(opts,erp);
 
+      // Notify init options, if required or in case of init errors
+      if (!rc) opts.debug = 1;
+      opts.Print(gsiTrace);
+
       // Some cleanup
       SafeFree(opts.certdir);
       SafeFree(opts.crldir);
@@ -2302,6 +2445,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       //              [-md:<list_of_supported_digests>]
       //              [-ca:<crl_verification_level>]
       //              [-crl:<crl_check_level>]
+      //              [-crlrefresh:<crl_refresh_time>]
       //              [-gridmap:<grid_map_file>]
       //              [-gmapfun:<grid_map_function>]
       //              [-gmapfunparms:<grid_map_function_init_parameters>]
@@ -2331,6 +2475,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       String exppxy = "";
       int ca = 1;
       int crl = 1;
+      int crlrefresh = 86400;
       int ogmap = 1;
       int gmapto = -1;
       int authzto = -1;
@@ -2363,6 +2508,8 @@ char *XrdSecProtocolgsiInit(const char mode,
                ca = atoi(op+4);
             } else if (!strncmp(op, "-crl:",5)) {
                crl = atoi(op+5);
+            } else if (!strncmp(op, "-crlrefresh:",12)) {
+               crlrefresh = atoi(op+12);
             } else if (!strncmp(op, "-gmapopt:",9)) {
                ogmap = atoi(op+9);
             } else if (!strncmp(op, "-gridmap:",9)) {
@@ -2393,6 +2540,8 @@ char *XrdSecProtocolgsiInit(const char mode,
                moninfo = 1;
             } else if (!strncmp(op, "-moninfo:",9)) {
                moninfo = atoi(op+9);
+            } else {
+               PRINT("ignoring unknown switch: "<<op);
             }
          }
       }
@@ -2403,6 +2552,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       opts.mode = 's';
       opts.ca = ca;
       opts.crl = crl;
+      opts.crlrefresh = crlrefresh;
       opts.ogmap = ogmap;
       opts.gmapto = gmapto;
       opts.authzto = authzto;
@@ -2438,10 +2588,17 @@ char *XrdSecProtocolgsiInit(const char mode,
          opts.authzfunparms = (char *)authzfunparms.c_str();
       if (exppxy.length() > 0)
          opts.exppxy = (char *)exppxy.c_str();
+
+      // Notify init options, if required
+      opts.Print(gsiTrace);
+
       //
       // Setup the plug-in with the chosen options
       return XrdSecProtocolgsi::Init(opts,erp);
    }
+
+   // Notify init options, if required
+   opts.Print(gsiTrace);
    //
    // Setup the plug-in with the defaults
    return XrdSecProtocolgsi::Init(opts,erp);
@@ -3703,122 +3860,13 @@ bool XrdSecProtocolgsi::CheckRtag(XrdSutBuffer *bm, String &emsg)
 }
 
 //______________________________________________________________________________
-int XrdSecProtocolgsi::LoadCADir(int timestamp)
-{
-   // Scan cadir for valid CA certificates and load them in memory
-   // in cache ca.
-   // Return 0 if ok, -1 if problems
-   EPNAME("LoadCADir");
-
-   // Init cache
-   XrdSutCache *ca = &(XrdSecProtocolgsi::cacheCA);
-   if (!ca || ca->Init(100) != 0) {
-      DEBUG("problems init cache for CA info");
-      return -1;
-   }
-
-   // Some global statics
-   String cadir;
-   int from = 0;
-   while ((from = CAdir.tokenize(cadir, from, ',')) != -1) {
-      if (cadir.length() <= 0) continue;
-
-      // Open directory
-      DIR *dd = opendir(cadir.c_str());
-      if (!dd) {
-         DEBUG("could not open directory: "<<cadir<<" (errno: "<<errno<<")");
-         continue;
-      }
-
-      // Read the content
-      int i = 0;
-      XrdCryptoX509ParseFile_t ParseFile = 0;
-      String enam(cadir.length()+100); 
-      struct dirent *dent = 0;
-      while ((dent = readdir(dd))) {
-         // Skip some obvious non-CA entries
-         if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, "..")) continue;
-         // entry name
-         enam = cadir + dent->d_name;
-         if (enam.endswith(".signing_policy") || enam.endswith(".namespaces") ||
-             enam.endswith(".info") || enam.endswith(".crl_url")) continue;
-         DEBUG("analysing entry "<<enam);
-         // Try to init a chain: for each crypto factory
-         for (i = 0; i < ncrypt; i++) {
-            X509Chain *chain = new X509Chain();
-            // Get the parse function
-            ParseFile = cryptF[i]->X509ParseFile();
-            int nci = (*ParseFile)(enam.c_str(), chain);
-            bool ok = 0;
-            XrdCryptoX509Crl *crl = 0;
-            // Check what we got
-            if (chain && nci == 1) {
-               // Verify the CA
-               bool verified = VerifyCA(CACheck, chain, cryptF[i]);
-               if (verified) {
-
-                  // Get CRL, if required
-                  if (CRLCheck > 0)
-                     crl = LoadCRL(chain->Begin(), cryptF[i]);
-                  // Apply requirements
-                  if (CRLCheck < 2 || crl) {
-                     if (CRLCheck < 3 ||
-                        (CRLCheck == 3 && crl && !(crl->IsExpired(timestamp)))) {
-                        // Good CA
-                        ok = 1;
-                     } else {
-                        DEBUG("CRL is expired (CRLCheck: "<<CRLCheck<<")");
-                     }
-                  } else {
-                     DEBUG("CRL is missing (CRLCheck: "<<CRLCheck<<")");
-                  }
-               }
-            }
-            //
-            if (ok) {
-               // Save the chain: create the tag first
-               String tag(chain->Begin()->SubjectHash());
-               tag += ':';
-               tag += cryptID[i];
-               // Add to the cache
-               XrdSutPFEntry *cent = ca->Add(tag.c_str());
-               if (cent) {
-                  cent->buf1.buf = (char *)chain;
-                  cent->buf1.len = 0;      // Just a flag
-                  if (crl) {
-                     cent->buf2.buf = (char *)crl;
-                     cent->buf2.len = 0;      // Just a flag
-                  }
-                  cent->mtime = timestamp;
-                  cent->status = kPFE_ok;
-                  cent->cnt = 0;
-               }
-            } else {
-               DEBUG("Entry "<<enam<<" does not contain a valid CA");
-               if (chain)
-                  chain->Cleanup();
-               SafeDelete(chain);
-               SafeDelete(crl);
-            }
-         }
-      }
-      // Close dir
-      closedir(dd);
-   }
-
-   // Rehash cache
-   ca->Rehash(1);
-
-   // We are done
-   return 0;
-}
-
-//______________________________________________________________________________
 XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
-                                             XrdCryptoFactory *CF)
+                                             XrdCryptoFactory *CF, int dwld)
 {
    // Scan crldir for a valid CRL certificate associated to CA whose
-   // certificate is xca. If the CRL is found and is valid according
+   // certificate is xca. If 'dwld' is true try to download the CRL from
+   // the relevant URI, if any.
+   // If the CRL is found and is valid according
    // to the chosen option, return its content in a X509Crl object.
    // Return 0 in any other case
    EPNAME("LoadCRL");
@@ -3889,7 +3937,7 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
    }
 
    // If not required, we are done
-   if (CRLCheck < 2) {
+   if (CRLCheck < 2 || (dwld == 0)) {
       // Done
       return crl;
    }
@@ -4122,33 +4170,52 @@ bool XrdSecProtocolgsi::VerifyCA(int opt, X509Chain *cca, XrdCryptoFactory *CF)
 }
 
 //______________________________________________________________________________
-int XrdSecProtocolgsi::GetCA(const char *cahash)
+int XrdSecProtocolgsi::GetCA(const char *cahash,
+                             XrdCryptoFactory *cf, gsiHSVars *hs)
 {
-   // Gets entry for CA with hash cahash for crypt factory cryptF[ic].
+   // Gets entry for CA with hash cahash for crypt factory cf.
    // If not found in cache, try loading from <CAdir>/<cahash>.0 .
+   // If 'hs' is defined, store pointers to chain and crl into 'hs'. 
    // Return 0 if ok, -1 if not available, -2 if CRL not ok
    EPNAME("GetCA");
 
    // We nust have got a CA hash
-   if (!cahash) {
+   if (!cahash || !cf) {
       DEBUG("Invalid input ");
       return -1;
    }
 
+   // Timestamp
+   int timestamp = (hs) ? hs->TimeStamp : time(0);
+
    // The tag
    String tag(cahash,20);
    tag += ':';
-   tag += sessionCF->ID();
-   DEBUG("Querying cache for tag: "<<tag);
+   tag += cf->ID();
+   DEBUG("Querying cache for tag: "<<tag<<" (timestamp:"<<timestamp<<
+         ", refresh fq:"<< CRLRefresh <<")");
 
    // Try first the cache
    XrdSutPFEntry *cent = cacheCA.Get(tag.c_str());
 
    // If found, we are done
    if (cent) {
-      hs->Chain = (X509Chain *)(cent->buf1.buf);
-      hs->Crl = (XrdCryptoX509Crl *)(cent->buf2.buf);
-      return 0;
+      if ((CRLRefresh <= 0) || ((timestamp - cent->mtime) < CRLRefresh)) {
+         if (hs) {
+            hs->Chain = (X509Chain *)(cent->buf1.buf);
+            hs->Crl = (XrdCryptoX509Crl *)(cent->buf2.buf);
+         }
+         return 0;
+      } else {
+         PRINT("entry for '"<<tag<<"' needs refreshing: clean the related entry cache first");
+         // Entry needs refreshing
+         delete (X509Chain *)(cent->buf1.buf); cent->buf1.buf = 0;
+         delete (XrdCryptoX509Crl *)(cent->buf2.buf); cent->buf2.buf = 0;
+         if (!cacheCA.Remove(tag.c_str())) {
+            PRINT("problems removing entry from CA cache");
+            return -1;
+         }
+      }
    }
 
    // If not, prepare the file name
@@ -4156,30 +4223,29 @@ int XrdSecProtocolgsi::GetCA(const char *cahash)
    DEBUG("trying to load CA certificate from "<<fnam);
 
    // Create chain
-   hs->Chain = new X509Chain();
-   if (!hs->Chain ) {
+   X509Chain *chain = new X509Chain();
+   if (!chain ) {
       DEBUG("could not create new GSI chain");
       return -1;
    }
 
    // Get the parse function
-   XrdCryptoX509ParseFile_t ParseFile = sessionCF->X509ParseFile();
+   XrdCryptoX509ParseFile_t ParseFile = cf->X509ParseFile();
    if (ParseFile) {
-      int nci = (*ParseFile)(fnam.c_str(), hs->Chain);
+      int nci = (*ParseFile)(fnam.c_str(), chain);
       bool ok = 0, verified = 0;
       if (nci == 1) {
          // Verify the CA
-         verified = VerifyCA(CACheck, hs->Chain, sessionCF);
-
+         verified = VerifyCA(CACheck, chain, cf);
+         XrdCryptoX509Crl *crl = 0;
          if (verified) {
             // Get CRL, if required
             if (CRLCheck > 0)
-               hs->Crl = LoadCRL(hs->Chain->Begin(), sessionCF);
+               crl = LoadCRL(chain->Begin(), cf, CRLDownload);
             // Apply requirements
-            if (CRLCheck < 2 || hs->Crl) {
+            if (CRLCheck < 2 || crl) {
                if (CRLCheck < 3 ||
-                  (CRLCheck == 3 &&
-                  hs->Crl && !(hs->Crl->IsExpired(hs->TimeStamp)))) {
+                  (CRLCheck == 3 && crl && !(crl->IsExpired(timestamp)))) {
                   // Good CA
                   ok = 1;
                } else {
@@ -4194,15 +4260,20 @@ int XrdSecProtocolgsi::GetCA(const char *cahash)
             // Add to the cache
             cent = cacheCA.Add(tag.c_str());
             if (cent) {
-               cent->buf1.buf = (char *)(hs->Chain);
+               cent->buf1.buf = (char *)(chain);
                cent->buf1.len = 0;      // Just a flag
-               if (hs->Crl) {
-                  cent->buf2.buf = (char *)(hs->Crl);
+               if (crl) {
+                  cent->buf2.buf = (char *)(crl);
                   cent->buf2.len = 0;      // Just a flag
                }
-               cent->mtime = hs->TimeStamp;
+               cent->mtime = timestamp;
                cent->status = kPFE_ok;
                cent->cnt = 0;
+            }
+            // Fill output, if required
+            if (hs) {
+               hs->Chain = chain;
+               hs->Crl = crl;
             }
          } else {
             return -2;
@@ -4355,7 +4426,7 @@ int XrdSecProtocolgsi::ParseCAlist(String calist)
          // Check this hash
          if (cahash.length()) {
             // Get the CA chain
-            if (GetCA(cahash.c_str()) == 0)
+            if (GetCA(cahash.c_str(), sessionCF, hs) == 0)
                return 0;
          }
       }
@@ -5023,7 +5094,7 @@ bool XrdSecProtocolgsi::ServerCertNameOK(const char *subject, XrdOucString &emsg
       }
    }
 
-   // Take into account specif requests, if any
+   // Take into account specific requests, if any
    if (SrvAllowedNames.length() > 0) {
       // The SrvAllowedNames string contains the allowed formats separated by a '|'.
       // The specifications can contain the <host> or <fqdn> placeholders which
