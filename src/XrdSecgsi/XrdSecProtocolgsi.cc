@@ -604,19 +604,6 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
          PRINT("WARNING: process has no permission to read the certificate key file: "<<SrvKey);
       }
       //
-      // Get the IDs of the file: we need them to acquire the right privileges when opening
-      // the certificate
-      bool getpriv = 0;
-      uid_t gsi_uid = geteuid();
-      gid_t gsi_gid = getegid();
-      if (!stat(SrvKey.c_str(), &st)) {
-         if (st.st_uid != gsi_uid || st.st_gid != gsi_gid) {
-            getpriv = 1;
-            gsi_uid = st.st_uid;
-            gsi_gid = st.st_gid;
-         }
-      }
-      //
       // Init cache for certificates (we allow for more instances of
       // the same certificate, one for each different crypto module
       // available; this may evetually not be strictly needed.)
@@ -628,73 +615,9 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
       int i = 0;
       String certcalist = "";   // list of CA for server certificates
       for (; i<ncrypt; i++) {
-         // Check normal certificates
-         XrdCryptoX509 *xsrv = 0;
-         {  XrdSysPrivGuard pGuard(gsi_uid, gsi_gid);
-            if (pGuard.Valid() || !getpriv) {
-               xsrv = cryptF[i]->X509(SrvCert.c_str(), SrvKey.c_str());
-            } else {
-               PRINT("problems creating guard to load server certificate '"<<
-                     SrvCert<<"' (euid:"<<geteuid()<<", egid:"<<getegid()<<
-                     ") <-> (st_uid:"<<st.st_uid<<", st_gid:"<<st.st_gid<<")" );
-               continue;
-            }
-         }
-         if (xsrv) {
-            // Must be of EEC type
-            if (xsrv->type != XrdCryptoX509::kEEC) {
-               PRINT("problems loading srv cert: not EEC but: "<<xsrv->Type());
-               continue;
-            }
-            // Must be valid
-            if (!(xsrv->IsValid())) {
-               PRINT("problems loading srv cert: invalid");
-               continue;
-            }
-            // PKI must have been successfully initialized
-            if (!xsrv->PKI() || xsrv->PKI()->status != XrdCryptoRSA::kComplete) {
-               PRINT("problems loading srv cert: invalid PKI");
-               continue;
-            }
-            // Must be exportable
-            XrdSutBucket *xbck = xsrv->Export();
-            if (!xbck) {
-               PRINT("problems loading srv cert: cannot export into bucket");
-               continue;
-            }
-            // We must have the issuing CA certificate
-            int rcgetca = 0;
-            if ((rcgetca = GetCA(xsrv->IssuerHash(), cryptF[i])) != 0) {
-               if (rcgetca == -1) {
-                  PRINT("do not have certificate for the issuing CA '"<<xsrv->IssuerHash()<<"'");
-               } else {
-                  PRINT("failed to initialized CRL for issuing CA '"<<xsrv->IssuerHash()<<"'");
-               }
-               continue;
-            }
-            // Ok: save it into the cache
-            String tag = cryptF[i]->Name();
-            XrdSutPFEntry *cent = cacheCert.Add(tag.c_str());
-            if (cent) {
-               cent->status = kPFE_ok;
-               cent->cnt = 0;
-               cent->mtime = xsrv->NotAfter(); // expiration time
-               // Save pointer to certificate
-               cent->buf1.buf = (char *)xsrv;
-               cent->buf1.len = 0;  // just a flag
-               // Save pointer to key
-               cent->buf2.buf = (char *)(xsrv->PKI());
-               cent->buf2.len = 0;  // just a flag
-               // Save pointer to bucket
-               cent->buf3.buf = (char *)(xbck);
-               cent->buf3.len = 0;  // just a flag
-               // Save CA hash in list to communicate to clients
-               if (certcalist.find(xsrv->IssuerHash()) == STR_NPOS) {
-                  if (certcalist.length() > 0)
-                     certcalist += "|";
-                  certcalist += xsrv->IssuerHash();
-               }
-            }
+         if (!GetSrvCertEnt(cryptF[i], time(0), certcalist)) {
+            PRINT("problems loading srv cert");
+            continue;
          }
       }
       // Rehash cache
@@ -3275,30 +3198,11 @@ int XrdSecProtocolgsi::ServerDoCertreq(XrdSutBuffer *br, XrdSutBuffer **bm,
       return -1;
    }
    // Find our certificate in cache
-   XrdSutPFEntry *cent = 0;
-   if (!(cent = cacheCert.Get(sessionCF->Name()))) {
+   String cadum;
+   XrdSutPFEntry *cent = GetSrvCertEnt(sessionCF, hs->TimeStamp, cadum);
+   if (!cent) {
       cmsg = "cannot find certificate: corruption?";
       return -1;
-   }
-   // Check validity and run renewal for proxies or fail
-   if (cent->mtime < hs->TimeStamp) {
-      if (cent->status == kPFE_special) {
-         // Try init proxies
-         ProxyIn_t pi = {SrvCert.c_str(), SrvKey.c_str(), CAdir.c_str(),
-                         UsrProxy.c_str(), PxyValid.c_str(), 0, 512};
-         X509Chain *ch = 0;
-         XrdCryptoRSA *k = 0;
-         XrdSutBucket *b = 0;
-         ProxyOut_t po = {ch, k, b };
-         if (QueryProxy(0, &cacheCert, sessionCF->Name(),
-                        sessionCF, hs->TimeStamp, &pi, &po) != 0) {
-            cmsg = "proxy expired and cannot be renewed";
-            return -1;
-         }
-      } else {
-         cmsg = "certificate has expired - go and get a new one";
-         return -1;
-      }
    }
 
    // Fill some relevant handshake variables
@@ -3878,29 +3782,6 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
       return crl;
    }
 
-   // Get the signing certificate
-   bool verify = 1;
-   XrdCryptoX509 *xcasig = xca;
-   while (xcasig && strcmp(xcasig->Issuer(), xcasig->Subject())) {
-      String crldir;
-      int from = 0;
-      while ((from = CRLdir.tokenize(crldir, from, ',')) != -1) {
-         if (crldir.length() <= 0) continue;
-         String casigfile = crldir + xcasig->IssuerHash();
-         // Try to get the certificate
-         if ((xcasig = CF->X509(casigfile.c_str()))) break;
-      }
-   }
-   if (!xcasig) {
-      verify = 0;
-      if (CACheck == 2) {
-         DEBUG("CA certificate to verify the signature could not be loaded - exit");
-         return crl;
-      } else if (CACheck == 1) {
-         DEBUG("CA certificate to verify the signature could not be loaded - verification skipped");
-      }
-   }
-
    // Get the CA hash
    String cahash = xca->SubjectHash();
    // Drop the extension (".0")
@@ -3909,6 +3790,7 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
    // The dir
    String crlext = XrdSecProtocolgsi::DefCRLext;
 
+   XrdCryptoX509 *xcasig = 0;
    String crldir;
    int from = 0;
    while ((from = CRLdir.tokenize(crldir, from, ',')) != -1) {
@@ -3919,21 +3801,32 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
       DEBUG("target file: "<<crlfile);
       // Try to init a crl
       if ((crl = CF->X509Crl(crlfile.c_str()))) {
-         if (verify) {
-            // Verify issuer
-            if (!(strcmp(crl->Issuer(),xcasig->Subject()))) {
-               // Verify signature
-               if (crl->Verify(xcasig)) {
-                  // Ok, we are done
-                  return crl;
-               }
+         // Signing certificate file
+         String casigfile = crldir + crl->IssuerHash();
+         DEBUG("CA signing certificate file = "<<casigfile);
+         // Try to get signing certificate
+         if (!(xcasig = CF->X509(casigfile.c_str()))) {
+            if (CRLCheck >= 2) {
+               PRINT("CA certificate to verify the signature ("<<crl->IssuerHash()<<") could not be loaded - exit");
+               SafeDelete(crl);
+            } else {
+               DEBUG("CA certificate to verify the signature could not be loaded - verification  skipped");
             }
-         } else {
-            // Ok, we are done
+            // We are done anyhow
             return crl;
+         } else {
+            // Verify signature
+            if (crl->Verify(xcasig)) {
+               // Ok, we are done
+               SafeDelete(xcasig);
+               return crl;
+            } else {
+               PRINT("CA signature verification failed!");
+            }
          }
       }
       SafeDelete(crl);
+      SafeDelete(xcasig);
    }
 
    // If not required, we are done
@@ -3949,19 +3842,24 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
 
    // Try to retrieve it from the URI in the CA certificate, if any
    if ((crl = CF->X509Crl(xca))) {
-      if (verify) {
-         // Verify issuer
-         if (!(strcmp(crl->Issuer(),xcasig->Subject()))) {
-            // Verify signature
-            if (crl->Verify(xcasig)) {
-               // Ok, we are done
-               return crl;
-            }
-         }
+      // Signing certificate file
+      String casigfile = crldir + crl->IssuerHash();
+      DEBUG("CA signing certificate file = "<<casigfile);
+      // Try to get signing certificate
+      if (!(xcasig = CF->X509(casigfile.c_str()))) {
+         PRINT("CA certificate to verify the signature ("<<crl->IssuerHash()<<") could not be loaded - exit");
       } else {
-         // Ok, we are done
-         return crl;
+         // Verify signature
+         if (crl->Verify(xcasig)) {
+            // Ok, we are done
+            SafeDelete(xcasig);
+            return crl;
+         } else {
+            PRINT("CA signature verification failed!");
+         }
       }
+      SafeDelete(crl);
+      SafeDelete(xcasig);
    }
 
    // Finally try the ".crl_url" file
@@ -3981,19 +3879,24 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
       while ((fgets(line, sizeof(line), furl))) {
          if (line[strlen(line) - 1] == '\n') line[strlen(line) - 1] = 0;
          if ((crl = CF->X509Crl(line, 1))) {
-            if (verify) {
-               // Verify issuer
-               if (!(strcmp(crl->Issuer(),xcasig->Subject()))) {
-                  // Verify signature
-                  if (crl->Verify(xcasig)) {
-                     // Ok, we are done
-                     return crl;
-                  }
-               }
+            // Signing certificate file
+            String casigfile = crldir + crl->IssuerHash();
+            DEBUG("CA signing certificate file = "<<casigfile);
+            // Try to get signing certificate
+            if (!(xcasig = CF->X509(casigfile.c_str()))) {
+               PRINT("CA certificate to verify the signature ("<<crl->IssuerHash()<<") could not be loaded - exit");
             } else {
-               // Ok, we are done
-               return crl;
+               // Verify signature
+               if (crl->Verify(xcasig)) {
+                  // Ok, we are done
+                  SafeDelete(xcasig);
+                  return crl;
+               } else {
+                  PRINT("CA signature verification failed!");
+               }
             }
+            SafeDelete(crl);
+            SafeDelete(xcasig);
          }
       }
    }
@@ -4022,20 +3925,25 @@ XrdCryptoX509Crl *XrdSecProtocolgsi::LoadCRL(XrdCryptoX509 *xca,
          // Try to init a crl
          crl = CF->X509Crl(crlfile.c_str());
          if (!crl) continue;
-         if (verify) {
-            // Verify issuer
-            if (strcmp(crl->Issuer(),xca->Subject())) {
-               SafeDelete(crl);
-               continue;
-            }
+
+         // Signing certificate file
+         String casigfile = crldir + crl->IssuerHash();
+         DEBUG("CA signing certificate file = "<<casigfile);
+         // Try to get signing certificate
+         if (!(xcasig = CF->X509(casigfile.c_str()))) {
+            PRINT("CA certificate to verify the signature ("<<crl->IssuerHash()<<") could not be loaded - exit");
+         } else {
             // Verify signature
-            if (!(crl->Verify(xca))) {
-               SafeDelete(crl);
-               continue;
+            if (crl->Verify(xcasig)) {
+               // Ok, we are done
+               SafeDelete(xcasig);
+               break;
+            } else {
+               PRINT("CA signature verification failed!");
             }
          }
-         // Ok
-         break;
+         SafeDelete(xcasig);
+         SafeDelete(crl);
       }
       // Close dir
       closedir(dd);
@@ -5132,5 +5040,133 @@ bool XrdSecProtocolgsi::ServerCertNameOK(const char *subject, XrdOucString &emsg
 
    // Done
    return allowed;
+}
+
+//_____________________________________________________________________________
+XrdSutPFEntry *XrdSecProtocolgsi::GetSrvCertEnt(XrdCryptoFactory *cf,
+                                                int timestamp, String &certcalist)
+{
+   // Get cache entry for server certificate. This function checks the cache
+   // and loads or re-loads the certificate form the specified files if required.
+   // make sure we got what we need
+   EPNAME("GetSrvCertEnt");
+
+   if (!cf) {
+      DEBUG("Invalid inputs");
+      return (XrdSutPFEntry *)0;
+   }
+
+   XrdSutPFEntry *cent = cacheCert.Get(cf->Name());
+
+   // If there is already one valid, we are done
+   if (cent && cent->mtime >= timestamp) return cent;
+
+   if (cent) PRINT("entry has expired: trying to renew ...");
+   
+   // Try get one or renew-it
+   if (cent && cent->status == kPFE_special) {
+      // Try init proxies
+      ProxyIn_t pi = {SrvCert.c_str(), SrvKey.c_str(), CAdir.c_str(),
+                        UsrProxy.c_str(), PxyValid.c_str(), 0, 512};
+      X509Chain *ch = 0;
+      XrdCryptoRSA *k = 0;
+      XrdSutBucket *b = 0;
+      ProxyOut_t po = {ch, k, b };
+      if (QueryProxy(0, &cacheCert, cf->Name(), cf, timestamp, &pi, &po) != 0) {
+         PRINT("proxy expired and cannot be renewed");
+         return (XrdSutPFEntry *)0;
+      }
+   }
+
+   cent = 0;
+
+   //
+   // Get the IDs of the file: we need them to acquire the right privileges when opening
+   // the certificate
+   bool getpriv = 0;
+   uid_t gsi_uid = geteuid();
+   gid_t gsi_gid = getegid();
+   struct stat st;
+   if (!stat(SrvKey.c_str(), &st)) {
+      if (st.st_uid != gsi_uid || st.st_gid != gsi_gid) {
+         getpriv = 1;
+         gsi_uid = st.st_uid;
+         gsi_gid = st.st_gid;
+      }
+   }
+   
+   // Check normal certificates
+   XrdCryptoX509 *xsrv = 0;
+   {  XrdSysPrivGuard pGuard(gsi_uid, gsi_gid);
+      if (pGuard.Valid() || !getpriv) {
+         xsrv = cf->X509(SrvCert.c_str(), SrvKey.c_str());
+      } else {
+         PRINT("problems creating guard to load server certificate '"<<
+               SrvCert<<"' (euid:"<<geteuid()<<", egid:"<<getegid()<<
+               ") <-> (st_uid:"<<st.st_uid<<", st_gid:"<<st.st_gid<<")" );
+         return cent;
+      }
+   }
+   if (xsrv) {
+      // Must be of EEC type
+      if (xsrv->type != XrdCryptoX509::kEEC) {
+         PRINT("problems loading srv cert: not EEC but: "<<xsrv->Type());
+         return cent;
+      }
+      // Must be valid
+      if (!(xsrv->IsValid())) {
+         PRINT("problems loading srv cert: invalid");
+         return cent;
+      }
+      // PKI must have been successfully initialized
+      if (!xsrv->PKI() || xsrv->PKI()->status != XrdCryptoRSA::kComplete) {
+         PRINT("problems loading srv cert: invalid PKI");
+         return cent;
+      }
+      // Must be exportable
+      XrdSutBucket *xbck = xsrv->Export();
+      if (!xbck) {
+         PRINT("problems loading srv cert: cannot export into bucket");
+         return cent;
+      }
+      // We must have the issuing CA certificate
+      int rcgetca = 0;
+      if ((rcgetca = GetCA(xsrv->IssuerHash(), cf)) != 0) {
+         if (rcgetca == -1) {
+            PRINT("do not have certificate for the issuing CA '"<<xsrv->IssuerHash()<<"'");
+         } else {
+            PRINT("failed to initialized CRL for issuing CA '"<<xsrv->IssuerHash()<<"'");
+         }
+         return cent;
+      }
+      // Ok: save it into the cache
+      String tag = cf->Name();
+      cent = cacheCert.Add(tag.c_str());
+      if (cent) {
+         cent->status = kPFE_ok;
+         cent->cnt = 0;
+         cent->mtime = xsrv->NotAfter(); // expiration time
+         // Save pointer to certificate
+         SafeDelete(cent->buf1.buf);
+         cent->buf1.buf = (char *)xsrv;
+         cent->buf1.len = 0;  // just a flag
+         // Save pointer to key
+         SafeDelete(cent->buf2.buf);
+         cent->buf2.buf = (char *)(xsrv->PKI());
+         cent->buf2.len = 0;  // just a flag
+         // Save pointer to bucket
+         SafeDelete(cent->buf3.buf);
+         cent->buf3.buf = (char *)(xbck);
+         cent->buf3.len = 0;  // just a flag
+         // Save CA hash in list to communicate to clients
+         if (certcalist.find(xsrv->IssuerHash()) == STR_NPOS) {
+            if (certcalist.length() > 0)
+               certcalist += "|";
+            certcalist += xsrv->IssuerHash();
+         }
+      }
+   }
+   // Done
+   return cent;
 }
 

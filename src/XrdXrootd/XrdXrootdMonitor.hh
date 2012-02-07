@@ -81,7 +81,7 @@ inline void              Add_wr(kXR_unt32 dictid,
 
 static void              Defaults(char *dest1, int m1, char *dest2, int m2);
 static void              Defaults(int msz, int rsz, int wsz,
-                                  int flush, int flash, int iDent);
+                                  int flush, int flash, int iDent, int rnm);
 
 static void              Ident() {Send(-1, idRec, idLen);}
 
@@ -90,6 +90,11 @@ static int               Init(XrdScheduler *sp,    XrdSysError *errp,
                               const char   *iName, int Port);
 
        void              Open(kXR_unt32 dictid, off_t fsize);
+
+static int               Redirect() {return monREDR;}
+
+static int               Redirect(kXR_unt32  mID, const char *hName, int Port,
+                                  const char opC, const char *Path);
 
 static time_t            Tick();
 
@@ -148,8 +153,22 @@ static XrdXrootdMonitor *altMon;
 
                          XrdXrootdMonitor();
 
+static const int         rdrMax = 8;
+
 private:
                         ~XrdXrootdMonitor(); 
+
+static
+struct MonRdrBuff
+      {MonRdrBuff        *Next;
+       XrdXrootdMonBurr  *Buff;
+       int                nextEnt;
+       int                flushIt;
+       kXR_int32          lastTOD;
+       XrdSysMutex        Mutex;
+      }                   rdrMon[rdrMax];
+static MonRdrBuff        *rdrMP;
+static XrdSysMutex        rdrMutex;
 
 inline void              Add_io(kXR_unt32 duid, kXR_int32 blen, kXR_int64 offs)
                                {if (lastWindow != currWindow) Mark();
@@ -163,7 +182,9 @@ static XrdXrootdMonitor *Alloc(int force=0);
        void              Dup(XrdXrootdMonTrace *mrec);
 static void              fillHeader(XrdXrootdMonHeader *hdr,
                                     const char id, int size);
+static MonRdrBuff       *Fetch();
        void              Flush();
+static void              Flush(MonRdrBuff *mP);
 static kXR_unt32         Map(char  code, XrdXrootdMonitor::User &uInfo,
                              const char *path);
        void              Mark();
@@ -187,12 +208,16 @@ static struct sockaddr    InetAddr2;
 static int                monBlen;
        int                nextEnt;
 static int                lastEnt;
+static int                lastRnt;
 static int                autoFlash;
 static int                autoFlush;
 static int                FlushTime;
 static kXR_int32          startTime;
        kXR_int32          lastWindow;
 static kXR_int32          currWindow;
+static int                rdrTOD;
+static int                rdrWin;
+static int                rdrNum;
 static kXR_int32          sizeWindow;
 static int                isEnabled;
 static int                numMonitor;
@@ -204,10 +229,7 @@ static short              sidSize;
 static char               monIO;
 static char               monINFO;
 static char               monFILE;
-static char               monMIGR;
-static char               monPURGE;
 static char               monREDR;
-static char               monSTAGE;
 static char               monUSER;
 static char               monAUTH;
 static char               monACTIVE;
