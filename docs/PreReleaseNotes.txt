@@ -46,6 +46,11 @@ Prerelease Notes
      path (as opposed to a control path) in the monitoring record.
 
 + **Major bug fixes**
+   * Provide compatability for sprintf() implementations that check output
+     buffer length. This currently only affects gentoo and Ubuntu Linux.
+     We place it in the "major" section as it causes run-time errors there.
+   * Reinsert buffer size calculation that was mistakenly deleted.
+     This eventually causes a SEGV when detailed monitoring is enabled.  
    * Add HAVE_SENDFILE definition to cmake config. All post-cmake version of
      xrootd until now have disabled use of sendfile() with resulting poor
      performance. This fix corrects this.
@@ -69,6 +74,10 @@ Prerelease Notes
      largely affects xrdcp and some clients on slow links.
 
 + **Minor bug fixes**
+   * Correct debug message frequency that caused people to think some file
+     system partitions were being ignored.
+   * Correct pthread Num() to return thread-specific numbers.
+   * Make sure the sendfile interrupt counter is initialized to zero.
    * Make sure to honor absolute cms.space values when percentage not
      specified.
    * Print leading zeroes in an adler32 checksum.
@@ -89,6 +98,7 @@ Prerelease Notes
      file into read-only space.
 
 + **Miscellaneous**
+   * Complete implementation of the fstat() version of stat().
    * Consistently pass the enviroment to the cms client enterface.
    * Make return codes consistent between synchronous & async XrdCmsClient
      returns.
