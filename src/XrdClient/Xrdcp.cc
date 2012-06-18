@@ -628,6 +628,7 @@ int doCp_xrd2xrd(XrdClient **xrddest, const char *src, const char *dst) {
          nfo->clientidx = xrdxtrdfile->GimmeANewClientIdx();
          nfo->startfromblk = iii*xrdxtrdfile->GetNBlks() / xtremeclients.GetSize();
          nfo->maxoutstanding = xrdmin( 5, xrdxtrdfile->GetNBlks() / xtremeclients.GetSize() );
+         if (nfo->maxoutstanding < 1) nfo->maxoutstanding = 1;
 
          XrdSysThread::Run(&myTID, ReaderThread_xrd_xtreme, 
                            (void *)nfo, XRDSYSTHREAD_HOLD);
@@ -1032,6 +1033,11 @@ int doCp_xrd2loc(const char *src, const char *dst) {
       for (int i = 0; i < myTIDVec.GetSize(); i++) {
          pthread_cancel(myTIDVec[i]);
          pthread_join(myTIDVec[i], &thret);	 
+      }
+      if( !cpnfo.XrdCli->Close() )
+      {
+        PrintLastServerError(cpnfo.XrdCli);
+        retvalue = 1;
       }
       delete cpnfo.XrdCli;
       cpnfo.XrdCli = 0;

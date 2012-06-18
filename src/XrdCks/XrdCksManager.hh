@@ -10,6 +10,8 @@
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
 
+#include "sys/types.h"
+
 #include "XrdCks/XrdCks.hh"
 #include "XrdCks/XrdCksData.hh"
 
@@ -37,6 +39,8 @@ virtual int         Init(const char *ConfigFN, const char *AddCalc=0);
 virtual char       *List(const char *Pfn, char *Buff, int Blen, char Sep=' ');
 
 virtual const char *Name(int seqNum=0);
+
+virtual XrdCksCalc *Object(const char *name);
 
 virtual int         Size( const char  *Name=0);
 

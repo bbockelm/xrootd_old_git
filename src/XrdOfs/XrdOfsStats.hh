@@ -10,8 +10,6 @@
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
 /******************************************************************************/
 
-//          $Id$
-
 #include <stdlib.h>
 
 #include "XrdSys/XrdSysPthread.hh"
@@ -34,6 +32,10 @@ int         numErrors;
 int         numDelays;
 int         numSeventOK;
 int         numSeventER;
+int         numTPCgrant;
+int         numTPCdeny;
+int         numTPCerrs;
+int         numTPCexpr;
 }           Data;
 
 XrdSysMutex sdMutex;

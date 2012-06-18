@@ -4,8 +4,8 @@ include( XRootDCommon )
 #-------------------------------------------------------------------------------
 # Shared library version
 #-------------------------------------------------------------------------------
-set( XRD_OFS_VERSION   0.0.1 )
-set( XRD_OFS_SOVERSION 0 )
+set( XRD_OFS_VERSION   1.0.0 )
+set( XRD_OFS_SOVERSION 1 )
 
 #-------------------------------------------------------------------------------
 # The XrdClient lib
@@ -22,7 +22,12 @@ add_library(
   XrdOfs/XrdOfsEvs.cc           XrdOfs/XrdOfsEvs.hh
   XrdOfs/XrdOfsHandle.cc        XrdOfs/XrdOfsHandle.hh
   XrdOfs/XrdOfsPoscq.cc         XrdOfs/XrdOfsPoscq.hh
-  XrdOfs/XrdOfsStats.cc         XrdOfs/XrdOfsStats.hh )
+  XrdOfs/XrdOfsStats.cc         XrdOfs/XrdOfsStats.hh
+  XrdOfs/XrdOfsTPC.cc           XrdOfs/XrdOfsTPC.hh
+  XrdOfs/XrdOfsTPCAuth.cc       XrdOfs/XrdOfsTPCAuth.hh
+  XrdOfs/XrdOfsTPCJob.cc        XrdOfs/XrdOfsTPCJob.hh
+  XrdOfs/XrdOfsTPCInfo.cc       XrdOfs/XrdOfsTPCInfo.hh
+  XrdOfs/XrdOfsTPCProg.cc       XrdOfs/XrdOfsTPCProg.hh )
 
 target_link_libraries(
   XrdOfs

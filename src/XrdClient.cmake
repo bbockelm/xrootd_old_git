@@ -4,11 +4,11 @@ include( XRootDCommon )
 #-------------------------------------------------------------------------------
 # Shared library version
 #-------------------------------------------------------------------------------
-set( XRD_CLIENT_VERSION   0.0.1 )
-set( XRD_CLIENT_SOVERSION 0 )
+set( XRD_CLIENT_VERSION   1.0.0 )
+set( XRD_CLIENT_SOVERSION 1 )
 
-set( XRD_CLIENT_ADMIN_VERSION   0.0.1 )
-set( XRD_CLIENT_ADMIN_SOVERSION 0 )
+set( XRD_CLIENT_ADMIN_VERSION   1.0.0 )
+set( XRD_CLIENT_ADMIN_SOVERSION 1 )
 
 #-------------------------------------------------------------------------------
 # The XrdClient lib
@@ -72,7 +72,8 @@ target_link_libraries(
   XrdUtils
   dl
   pthread
-  ${ZLIB_LIBRARY} )
+  ${ZLIB_LIBRARY}
+  ${EXTRA_LIBS} )
 
 #-------------------------------------------------------------------------------
 # xrd

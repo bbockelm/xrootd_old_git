@@ -4,12 +4,10 @@ include( XRootDCommon )
 #-------------------------------------------------------------------------------
 # Shared library version
 #-------------------------------------------------------------------------------
-set( XRD_UTILS_VERSION   0.0.1 )
-set( XRD_UTILS_SOVERSION 0 )
-set( XRD_MAIN_VERSION    0.0.1 )
-set( XRD_MAIN_SOVERSION  0 )
-set( XRD_BONJOUR_VERSION    0.0.1 )
-set( XRD_BONJOUR_SOVERSION  0 )
+set( XRD_UTILS_VERSION   1.0.0 )
+set( XRD_UTILS_SOVERSION 1 )
+set( XRD_MAIN_VERSION    1.0.0 )
+set( XRD_MAIN_SOVERSION  1 )
 
 #-------------------------------------------------------------------------------
 # The XrdSys library
@@ -29,6 +27,7 @@ add_library(
   XrdSys/XrdSysPthread.cc       XrdSys/XrdSysPthread.hh
                                 XrdSys/XrdSysSemWait.hh
   XrdSys/XrdSysTimer.cc         XrdSys/XrdSysTimer.hh
+  XrdSys/XrdSysUtils.cc         XrdSys/XrdSysUtils.hh
   XrdSys/XrdSysXSLock.cc        XrdSys/XrdSysXSLock.hh
   XrdSys/XrdSysFAttr.cc         XrdSys/XrdSysFAttr.hh
                                 XrdSys/XrdSysFAttrBsd.icc
@@ -68,6 +67,7 @@ add_library(
   XrdOuc/XrdOucString.cc        XrdOuc/XrdOucString.hh
   XrdOuc/XrdOucSxeq.cc          XrdOuc/XrdOucSxeq.hh
   XrdOuc/XrdOucTokenizer.cc     XrdOuc/XrdOucTokenizer.hh
+  XrdOuc/XrdOucTPC.cc           XrdOuc/XrdOucTPC.hh
   XrdOuc/XrdOucTrace.cc         XrdOuc/XrdOucTrace.hh
   XrdOuc/XrdOucUtils.cc         XrdOuc/XrdOucUtils.hh
                                 XrdOuc/XrdOucChain.hh
@@ -130,6 +130,19 @@ add_library(
   Xrd/XrdScheduler.cc           Xrd/XrdScheduler.hh
   Xrd/XrdStats.cc               Xrd/XrdStats.hh
                                 Xrd/XrdTrace.hh
+
+  #-----------------------------------------------------------------------------
+  # XrdCks
+  #-----------------------------------------------------------------------------
+  XrdCks/XrdCksCalccrc32.cc        XrdCks/XrdCksCalccrc32.hh
+  XrdCks/XrdCksCalcmd5.cc          XrdCks/XrdCksCalcmd5.hh
+  XrdCks/XrdCksConfig.cc           XrdCks/XrdCksConfig.hh
+  XrdCks/XrdCksManager.cc          XrdCks/XrdCksManager.hh
+                                   XrdCks/XrdCksCalcadler32.hh
+                                   XrdCks/XrdCksCalc.hh
+                                   XrdCks/XrdCksData.hh
+                                   XrdCks/XrdCks.hh
+                                   XrdCks/XrdCksXAttr.hh
 )
 
 target_link_libraries(
@@ -165,39 +178,6 @@ set_target_properties(
   SOVERSION ${XRD_MAIN_SOVERSION} )
 
 #-------------------------------------------------------------------------------
-# Bonjour
-#-------------------------------------------------------------------------------
-if( BUILD_BONJOUR )
-  if( Linux )
-    add_library(
-      XrdBonjour
-      SHARED
-      XrdOuc/XrdOucBonjour.cc          XrdOuc/XrdOucBonjour.hh
-      XrdOuc/XrdOucAvahiBonjour.cc     XrdOuc/XrdOucAvahiBonjour.hh )
-    set( BONJOUR_FACTORY_HEADER XrdOuc/XrdOucAvahiBonjour.hh )
-  elseif( MacOSX )
-    add_library(
-      XrdBonjour
-      SHARED
-      XrdOuc/XrdOucBonjour.cc          XrdOuc/XrdOucBonjour.hh
-      XrdOuc/XrdOucAppleBonjour.cc     XrdOuc/XrdOucAppleBonjour.hh )
-    set( BONJOUR_FACTORY_HEADER XrdOuc/XrdOucAppleBonjour.hh )
-  endif()
-
-  target_link_libraries(
-    XrdBonjour
-    XrdUtils
-    ${BONJOUR_LIBRARIES} )
-
-  set_target_properties(
-    XrdBonjour
-    PROPERTIES
-    VERSION   ${XRD_BONJOUR_VERSION}
-    SOVERSION ${XRD_BONJOUR_SOVERSION}
-    LINK_INTERFACE_LIBRARIES "" )
-endif()
-
-#-------------------------------------------------------------------------------
 # Install
 #-------------------------------------------------------------------------------
 install(
@@ -216,8 +196,7 @@ install(
   DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdOuc
   FILES_MATCHING
   PATTERN "*.hh"
-  PATTERN "*.icc"
-  PATTERN "*Bonjour*.hh" EXCLUDE )
+  PATTERN "*.icc" )
 
 install(
   DIRECTORY      XrdNet/
@@ -240,11 +219,9 @@ install(
   PATTERN "*.hh"
   PATTERN "*.icc" )
 
-if( BUILD_BONJOUR )
-  install(
-    FILES
-    XrdOuc/XrdOucBonjour.hh
-    ${BONJOUR_FACTORY_HEADER}
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdOuc )
-endif()
-
+install(
+  DIRECTORY      XrdCks/
+  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdCks
+  FILES_MATCHING
+  PATTERN "*.hh"
+  PATTERN "*.icc" )
