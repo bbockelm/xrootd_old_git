@@ -224,5 +224,6 @@ extern XrdCmsXmi    *Xmi_Remove;
 extern XrdCmsXmi    *Xmi_Select;
 extern XrdCmsXmi    *Xmi_Space;
 extern XrdCmsXmi    *Xmi_Stat;
+extern XrdCmsXmi    *Xmi_Pref;
 }
 #endif

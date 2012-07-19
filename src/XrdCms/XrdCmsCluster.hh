@@ -22,6 +22,7 @@ class XrdLink;
 class XrdCmsDrop;
 class XrdCmsNode;
 class XrdCmsSelect;
+class XrdCmsPrefNodes;
 namespace XrdCms
 {
 struct CmsRRHdr;
@@ -75,6 +76,7 @@ int       sUtil;    // Average utilization
 //
 class XrdCmsBaseFR;
 class XrdCmsSelected;
+class XrdCmsPrefNodes;
 
 class XrdCmsCluster
 {
@@ -156,6 +158,10 @@ void            Space(XrdCms::SpaceData &sData, SMask_t smask);
 //
 int             Stats(char *bfr, int bln); // Server
 int             Statt(char *bfr, int bln); // Manager
+
+// Called to fill in the PrefNodes structure from our internal Nodes array.
+//
+int             FillInPrefs(XrdCmsPrefNodes & node_prefs);
 
                 XrdCmsCluster();
                ~XrdCmsCluster() {} // This object should never be deleted

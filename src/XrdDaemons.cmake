@@ -67,6 +67,8 @@ add_executable(
                                   XrdCms/XrdCmsSelect.hh
   XrdCms/XrdCmsState.cc           XrdCms/XrdCmsState.hh
   XrdCms/XrdCmsSupervisor.cc      XrdCms/XrdCmsSupervisor.hh
+  XrdCms/XrdCmsPrefNodes.cc       XrdCms/XrdCmsPrefNodes.hh
+  XrdCms/XrdCmsPref.cc            XrdCms/XrdCmsPref.hh
                                   XrdCms/XrdCmsTrace.hh )
 target_link_libraries(
   cmsd

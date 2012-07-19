@@ -122,6 +122,7 @@ inline int   Send(const struct iovec *iov, int iovcnt, int iotot=0)
                  {return (isOffline ? -1 : Link->Send(iov, iovcnt, iotot));}
 
        void  setName(XrdLink *lnkp, int port);
+       int   getName(char *result_buffer, size_t buffer_size) const; // See notes in XrdCmsNode.cc
 
        void  setShare(int shrval)
                      {if (shrval > 99) Shrem = Shrip = Share = 0;

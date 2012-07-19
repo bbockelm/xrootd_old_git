@@ -99,6 +99,7 @@ using namespace XrdCms;
        XrdCmsXmi       *XrdCms::Xmi_Select = 0;
        XrdCmsXmi       *XrdCms::Xmi_Space  = 0;
        XrdCmsXmi       *XrdCms::Xmi_Stat   = 0;
+       XrdCmsXmi       *XrdCms::Xmi_Pref   = 0;
 
 /******************************************************************************/
 /*                S e c u r i t y   S y m b o l   T i e - I n                 */
@@ -1121,7 +1122,8 @@ int XrdCmsConfig::setupXmi()
            {XMI_REMOVE, &Xmi_Remove, "remove"},
            {XMI_SELECT, &Xmi_Select, "select"},
            {XMI_SPACE,  &Xmi_Space,  "space"},
-           {XMI_STAT,   &Xmi_Stat,   "stat"}};
+           {XMI_STAT,   &Xmi_Stat,   "stat"},
+           {XMI_PREF,   &Xmi_Pref,   "pref"}};
    int numintab = sizeof(XmiTab)/sizeof(XmiTab[0]);
 
 // Fill out the rest of the XmiEnv structure

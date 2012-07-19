@@ -37,6 +37,8 @@
 #include "XrdCms/XrdCmsState.hh"
 #include "XrdCms/XrdCmsTrace.hh"
 #include "XrdCms/XrdCmsXmi.hh"
+#include "XrdCms/XrdCmsPrefNodes.hh"
+#include "XrdCms/XrdCmsPref.hh"
 
 #include "XrdOss/XrdOss.hh"
 
@@ -184,6 +186,22 @@ void XrdCmsNode::setName(XrdLink *lnkp, int port)
    *bp++ = ']';
    if (Port) {*bp++ = ':'; bp += sprintf(bp, "%d", Port);}
    IPV6Len = bp - IPV6;
+}
+
+/*
+ * Given a buffer and length, copy the IPV6 address to the buffer.
+ * Returns the number of bytes copied, excluding the nul-terminator.
+ * If the buffer is too small, returns 0 and the contents of result_buffer
+ * will not be touched.
+ */
+int XrdCmsNode::getName(char * result_buffer, size_t buffer_length) const
+{
+   if (buffer_length <= IPV6Len)
+      return 0;
+   strncpy(result_buffer, IPV6, IPV6Len);
+   result_buffer[IPV6Len] = '\0'; // This is not an off-by-one error as IPV6 is 
+                                  // not guaranteed to be zero-padded.
+   return IPV6Len;
 }
 
 /******************************************************************************/
@@ -921,6 +939,15 @@ const char *XrdCmsNode::do_Select(XrdCmsRRData &Arg)
        if (Arg.Opts & CmsSelectRequest::kYR_create) opts |= XMI_NEW;
        if (Arg.Opts & CmsSelectRequest::kYR_trunc)  opts |= XMI_TRUNC;
        if (Xmi_Select->Select(&Req, opts, Arg.Path, Arg.Opaque)) return 0;
+      }
+
+// See if the XMI provides preferences for the file staging location.
+   XrdCmsPref pref;
+   if (Xmi_Pref)
+      {XrdCmsPrefNodes node_prefs;
+       Cluster.FillInPrefs(node_prefs);
+       XrdCmsReq Req(this, Arg.Request.streamid);
+       if (Xmi_Pref->Pref(&Req, Arg.Path, Arg.Opaque, pref, node_prefs)) return 0;
       }
 
 // Init select data (note that refresh supresses fast redirects)

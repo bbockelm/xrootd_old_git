@@ -33,6 +33,7 @@
 #include "XrdCms/XrdCmsSelect.hh"
 #include "XrdCms/XrdCmsTrace.hh"
 #include "XrdCms/XrdCmsTypes.hh"
+#include "XrdCms/XrdCmsPrefNodes.hh"
 
 #include "XrdOuc/XrdOucPup.hh"
 
@@ -1676,3 +1677,29 @@ void XrdCmsCluster::setAltMan(int snum, unsigned int ipaddr, int port)
 //
    if (ap >= AltMend) {AltMend = ap + AltSize; AltMent = snum;}
 }
+
+/*
+ * FillInPrefs.
+ */
+int XrdCmsCluster::FillInPrefs(XrdCmsPrefNodes& nodes)
+{
+   XrdSysMutexHelper STMHelper(STMutex);
+   int Slot;
+   XrdCmsNode *np;
+   for (Slot = 0; Slot < STMax; Slot++)
+   {
+      np = NodeTab[Slot];
+      if (np)
+      {
+         int result = 0;
+         np->Lock();
+         if (!nodes.Acquire(Slot, *np))
+            result = 1;
+         np->UnLock();
+         if (result)
+            return result;
+      }
+   }
+   return 0;
+}
+

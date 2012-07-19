@@ -21,7 +21,7 @@ class XrdCmsXmiReq : XrdCmsXmi
 public:
 
        enum ReqType {do_chmod, do_mkdir, do_mkpath,do_mv,
-                     do_prep,  do_rm,    do_rmdir, do_stage, do_stat};
+                     do_prep,  do_rm,    do_rmdir, do_stage, do_stat, do_pref};
 
        int  Chmod (      XrdCmsReq      *Request,
                          mode_t          mode,
@@ -75,6 +75,13 @@ public:
                    const char           *path,
                    const char           *opaque)
                   {return Qit(Request, do_stat, 0, path, opaque);}
+
+        int Pref  (      XrdCmsReq      *Request,
+                   const char           *path,
+                   const char           *opaque,
+                        XrdCmsPref      &pref,
+                   XrdCmsPrefNodes      &nodes)
+                  {return Qit(Request, do_pref, 0, path, opaque);}
 
 static void processPrpQ();
 
