@@ -23,6 +23,8 @@ class XrdCmsDrop;
 class XrdCmsNode;
 class XrdCmsSelect;
 class XrdCmsPrefNodes;
+class XrdCmsPref;
+
 namespace XrdCms
 {
 struct CmsRRHdr;
@@ -76,7 +78,6 @@ int       sUtil;    // Average utilization
 //
 class XrdCmsBaseFR;
 class XrdCmsSelected;
-class XrdCmsPrefNodes;
 
 class XrdCmsCluster
 {
@@ -145,7 +146,7 @@ void            ResetRef(SMask_t smask);
 
 // Called to select the best possible node to serve a file (two forms)
 //
-int             Select(XrdCmsSelect &Sel);
+int             Select(XrdCmsSelect &Sel, XrdCmsPref *Pref=NULL);
 
 int             Select(int isrw, int isMulti, SMask_t pmask, int &port,
                        char *hbuff, int &hlen);
@@ -175,7 +176,7 @@ void        Record(char *path, const char *reason);
 int         Multiple(SMask_t mVec);
 enum        {eExists, eDups, eROfs, eNoRep, eNoEnt}; // Passed to SelFail
 int         SelFail(XrdCmsSelect &Sel, int rc);
-int         SelNode(XrdCmsSelect &Sel, SMask_t  pmask, SMask_t  amask);
+int         SelNode(XrdCmsSelect &Sel, SMask_t  pmask, SMask_t  amask, XrdCmsPref *prefs=NULL);
 XrdCmsNode *SelbyCost(SMask_t, int &, int &, const char **, int);
 XrdCmsNode *SelbyLoad(SMask_t, int &, int &, const char **, int);
 XrdCmsNode *SelbyRef (SMask_t, int &, int &, const char **, int);

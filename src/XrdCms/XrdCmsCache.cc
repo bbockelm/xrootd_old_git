@@ -199,7 +199,7 @@ int XrdCmsCache::DelFile(XrdCmsSelect &Sel, SMask_t mask)
 // This method looks up entries in the cache. An "entry not found" condition
 // holds is the entry was found but is marked as deleted.
 
-// Entry was found: Location information is passed bask. If the update deadline
+// Entry was found: Location information is passed back. If the update deadline
 //                  has passed, it is nullified and 1 is returned. Otherwise,
 //                  -1 is returned indicating a query is in progress.
 
@@ -209,6 +209,7 @@ int  XrdCmsCache::GetFile(XrdCmsSelect &Sel, SMask_t mask)
 {
    XrdCmsKeyItem *iP;
    SMask_t bVec;
+
    int retc;
 
 // Lock the hash table

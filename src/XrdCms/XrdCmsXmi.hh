@@ -205,13 +205,13 @@ virtual int  Stat  (      XrdCmsReq      *Request,
 
 // Called to get information about the XMI's node preferences for a given
 // file.
-// Opaque may be NULL; node information is passed with the node table locked.
+// Opaque may be NULL
 virtual int  Pref  (      XrdCmsReq      *Request,
                     const char           *path,
                     const char           *opaque,
                          XrdCmsPref      &pref,
                     XrdCmsPrefNodes      &nodes
-                    ) = 0;
+                    ) {return 0;};
 
 // Called after the plugin is loaded to determine which and how the above
 // methods are to be called.

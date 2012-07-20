@@ -34,6 +34,7 @@
 #include "XrdCms/XrdCmsTrace.hh"
 #include "XrdCms/XrdCmsTypes.hh"
 #include "XrdCms/XrdCmsPrefNodes.hh"
+#include "XrdCms/XrdCmsPref.hh"
 
 #include "XrdOuc/XrdOucPup.hh"
 
@@ -726,20 +727,30 @@ void XrdCmsCluster::ResetRef(SMask_t smask)
 /*                                S e l e c t                                 */
 /******************************************************************************/
   
-int XrdCmsCluster::Select(XrdCmsSelect &Sel)
+int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
 {
    EPNAME("Select");
    XrdCmsPInfo  pinfo;
    const char  *Amode;
-   int dowt = 0, retc, isRW, fRD, noSel = (Sel.Opts & XrdCmsSelect::Defer);
-   SMask_t amask, smask, pmask;
+   int dowt = 0; // Set non-zero if we will ask the client to wait.
+   int retc;
+   int isRW; // Set to one if this is a write request.
+   int fRD; // If 1, fast redirect is OK.
+   int noSel = (Sel.Opts & XrdCmsSelect::Defer);
+
+// For the most part,
+//   amask: The servers which advertise this file is in the set of directories exported.
+//   pmask: The mask of servers which can serve the file immediately.
+//   smask: The mask of servers which could stage the file.
+//   qmask: The mask of servers which we would like to query
+   SMask_t amask, smask, pmask, qmask;
 
 // Establish some local options
 //
    if (Sel.Opts & XrdCmsSelect::Write) 
       {isRW = 1; Amode = "write";
        if (Config.RWDelay)
-          if (Sel.Opts & XrdCmsSelect::Create && Config.RWDelay < 2) fRD = 1;
+          if (Sel.Opts & XrdCmsSelect::Create && Config.RWDelay < 2) fRD = 1; // If RWDelay is 2, never allow a fast redirect.
              else fRD = 0;
           else fRD = 1;
       }
@@ -783,10 +794,21 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel)
 // meta-operation (e.g., remove) in which case the file itself remain unmodified
 // or a replica request, in which case we select a new target server.
 //
+
+// When reading the following code, it's useful to recall the following mask
+// definitions for the contents of Sel.Vec:
+// wf: Writable locations
+// hf: Existing locations
+// pf: Pending  locations
+// bf: Bounced  locations
+// qf: Queried  locations
+
    if (!(Sel.Opts & XrdCmsSelect::Refresh)
    &&   (retc = Cache.GetFile(Sel, pinfo.rovec)))
-      {if (isRW)
-          {     if (retc<0) return Config.LUPDelay;
+      {// In this case, we can use the contents of the cache.
+       //
+       if (isRW) // If we want to read/write the file
+          {     if (retc<0) return Config.LUPDelay; // A query is in progress; delay the client.
               else if (Sel.Opts & XrdCmsSelect::Replica)
                    {pmask = amask & ~(Sel.Vec.hf | Sel.Vec.bf); smask = 0;
                     if (!pmask && !Sel.Vec.bf) return SelFail(Sel,eNoRep);
@@ -803,16 +825,23 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel)
                    {pmask = amask; smask = 0;}
            else if ((smask = pinfo.ssvec & amask)) pmask = 0;
            else pmask = smask = 0;
-          } else {
+          } else { // The read-only case.
            pmask = Sel.Vec.hf  & amask; 
-           if (Sel.Opts & XrdCmsSelect::Online) {pmask &= ~Sel.Vec.pf; smask=0;}
+           if (Sel.Opts & XrdCmsSelect::Online) // If we only want online files, 
+              {pmask &= ~Sel.Vec.pf;            // remove the pending servers from the pmask.
+               smask=0;                         // and zero out the smask (staging servers)
+              }
            else smask = (retc < 0 ? 0 : pinfo.ssvec & amask);
           }
+       // nmask is the set of servers to avoid; if they intersect with the found
+       // locations, we ask the cache to drop this knowledge.
        if (Sel.Vec.hf & Sel.nmask) Cache.UnkFile(Sel, Sel.nmask);
       } else {
+       // File is not in the cache.
+       // Record the fact we will query the cache for the file; initialize the query.
        Cache.AddFile(Sel, 0); 
        Sel.Vec.bf = pinfo.rovec; 
-       Sel.Vec.hf = Sel.Vec.pf = pmask = smask = 0;
+       Sel.Vec.hf = Sel.Vec.pf = Sel.Vec.qf = pmask = smask = 0;
        retc = 0;
       }
 
@@ -820,27 +849,36 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel)
 //
    dowt = (!pmask && !smask);
 
+// Calculate the servers to query, based on the ones we have already queried.
+// If there are available servers to select, do no further queries!
+//
+   qmask = dowt ? (prefs ? prefs->AdditionalNodesToQuery(Sel.Vec.qf) : -1) : 0;
+
 // If we can query additional servers, do so now. The client will be placed
 // in the callback queue only if we have no possible selections
 //
-   if (Sel.Vec.bf)
+   SMask_t servers_to_query = Sel.Vec.bf & qmask;
+   if (servers_to_query)
       {CmsStateRequest QReq = {{Sel.Path.Hash, kYR_state, kYR_raw, 0}};
        if (Sel.Opts & XrdCmsSelect::Refresh)
           QReq.Hdr.modifier |= CmsStateRequest::kYR_refresh;
        if (dowt) retc= (fRD ? Cache.WT4File(Sel,Sel.Vec.hf) : Config.LUPDelay);
        TRACE(Files, "seeking " <<Sel.Path.Val);
-       amask = Cluster.Broadcast(Sel.Vec.bf, QReq.Hdr,
-                                 (void *)Sel.Path.Val,Sel.Path.Len+1);
-       if (amask) Cache.UnkFile(Sel, amask);
+       SMask_t unqueryable_servers = Cluster.Broadcast(servers_to_query, QReq.Hdr,
+                                                       (void *)Sel.Path.Val,Sel.Path.Len+1);
+       Sel.Vec.qf |= servers_to_query; // Update the queried servers
+       if (unqueryable_servers) Cache.UnkFile(Sel, unqueryable_servers); // Record the errors we incurred.
        if (dowt) return retc;
       } else if (dowt && retc < 0 && !noSel)
                 return (fRD ? Cache.WT4File(Sel,Sel.Vec.hf) : Config.LUPDelay);
 
 // Broadcast a freshen up request if wanted
+// Note we don't broadcast to the nodes in servers_to_query; these were done above.
 //
-   if ((Sel.Opts & XrdCmsSelect::Freshen) && (amask = pmask & ~Sel.Vec.bf))
+   SMask_t servers_to_freshen;
+   if ((Sel.Opts & XrdCmsSelect::Freshen) && (servers_to_freshen = pmask & ~servers_to_query))
       {CmsStateRequest Qupt={{0,kYR_state,kYR_raw|CmsStateRequest::kYR_noresp,0}};
-       Cluster.Broadcast(amask, Qupt.Hdr,(void *)Sel.Path.Val,Sel.Path.Len+1);
+       Cluster.Broadcast(servers_to_freshen, Qupt.Hdr,(void *)Sel.Path.Val,Sel.Path.Len+1);
       }
 
 // If we need to defer selection, simply return as this is a mindless prepare
@@ -849,7 +887,7 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel)
 
 // Select a node
 //
-   if (dowt || (retc = SelNode(Sel, pmask, smask)) < 0)
+   if (dowt || (retc = SelNode(Sel, pmask, smask, prefs)) < 0)
       {Sel.Resp.DLen = snprintf(Sel.Resp.Data, sizeof(Sel.Resp.Data)-1,
                        "No servers are available to %s%s the file.",
                        Sel.Opts & XrdCmsSelect::Online ? "immediately " : "",
@@ -1321,8 +1359,10 @@ void XrdCmsCluster::Record(char *path, const char *reason)
 /*                               S e l N o d e                                */
 /******************************************************************************/
   
-int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t amask)
+int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t smask, XrdCmsPref *prefs)
 {
+    // pmask is the set of primary nodes that are acceptable.
+    // smask is the set of secondary nodes that are acceptable.
     EPNAME("SelNode")
     const char *act=0, *reason, *reason2 = "";
     int pspace, needspace, delay = 0, delay2 = 0, nump, isalt = 0, pass = 2;
@@ -1340,15 +1380,19 @@ int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t amask)
 // point we omit all peer nodes as they are our last resort.
 //
    STMutex.Lock();
-   mask = pmask & peerMask;
+   SMask_t orig_mask = pmask & peerMask;
+   mask = prefs ? prefs->SelectNodes(orig_mask) : orig_mask;
    while(pass--)
-        {if (mask)
+        {while (mask)
             {nP = (Config.sched_RR
                    ? SelbyRef( mask, nump, delay, &reason, needspace)
                    : SelbyLoad(mask, nump, delay, &reason, needspace));
              if (nP || (nump && delay) || NodeCnt < Config.SUPCount) break;
+             mask = prefs ? prefs->SelectNodes(orig_mask & ~mask) : 0;
             }
-         mask = amask & peerMask; isalt = XrdCmsNode::allowsSS;
+         orig_mask = smask & peerMask;
+         mask = prefs ? prefs->SelectNodes(orig_mask) : orig_mask;
+         isalt = XrdCmsNode::allowsSS;
          if (!(Sel.Opts & XrdCmsSelect::isMeta)) needspace |= isalt;
         }
    STMutex.UnLock();
@@ -1387,7 +1431,7 @@ int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t amask)
 //
    if (Sel.Opts & XrdCmsSelect::Peers)
       {STMutex.Lock();
-       if ((mask = (pmask | amask) & peerHost))
+       if ((mask = (pmask | smask) & peerHost))
           nP = SelbyCost(mask, nump, delay2, &reason2, pspace);
        STMutex.UnLock();
        if (nP)
