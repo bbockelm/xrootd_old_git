@@ -994,7 +994,7 @@ const char *XrdCmsNode::do_Select(XrdCmsRRData &Arg)
 
 // Perform selection
 //
-   if ((rc = Cluster.Select(Sel)))
+   if ((rc = Cluster.Select(Sel, &pref)))
       {if (rc > 0)
           {Arg.Request.rrCode = kYR_wait;
            Sel.Resp.Port      = rc;

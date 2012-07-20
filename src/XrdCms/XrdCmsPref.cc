@@ -36,7 +36,7 @@ SMask_t XrdCmsPref::do_AdditionalNodesToQuery(SMask_t queried_nodes)
 {
    unsigned int index = MAX_PREF_LEVELS-1;
    SMask_t nodes_to_query;
-   while (index != 0)
+   while (index >= 0)
    {
       nodes_to_query = m_prefs[index] & ~queried_nodes;
       if (nodes_to_query)
