@@ -34,13 +34,17 @@ SMask_t XrdCmsPref::do_SelectNodes(SMask_t available_nodes)
 
 SMask_t XrdCmsPref::do_AdditionalNodesToQuery(SMask_t queried_nodes)
 {
-   unsigned int index = MAX_PREF_LEVELS-1;
-   SMask_t nodes_to_query;
+   int index = MAX_PREF_LEVELS-1;
+   SMask_t prev_queried_nodes = 0;
+   bool found_prev_level = false;
    while (index >= 0)
    {
-      nodes_to_query = m_prefs[index] & ~queried_nodes;
-      if (nodes_to_query)
-         return nodes_to_query;
+      if (!queried_nodes && m_prefs[index])
+         return m_prefs[index];
+      else if (found_prev_level)
+         return m_prefs[index] & ~(prev_queried_nodes | queried_nodes);
+      prev_queried_nodes |= m_prefs[index];
+      found_prev_level = m_prefs[index] & queried_nodes;
       index--;
    }
    // In the standard case where m_prefs[0] = 0xFFFFFFFF, this "does

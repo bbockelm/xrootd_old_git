@@ -50,7 +50,6 @@ struct {SMask_t wf;     // Out: Writable locations
         SMask_t hf;     // Out: Existing locations
         SMask_t pf;     // Out: Pending  locations
         SMask_t bf;     // Out: Bounced  locations
-        SMask_t qf;     // Out: Queried  locations
        }        Vec;
 
 struct {int  Port;      // Out: Target node port number

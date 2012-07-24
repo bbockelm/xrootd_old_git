@@ -737,6 +737,7 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
    int isRW; // Set to one if this is a write request.
    int fRD; // If 1, fast redirect is OK.
    int noSel = (Sel.Opts & XrdCmsSelect::Defer);
+   bool new_query = false; // True if this is a new query.
 
 // For the most part,
 //   amask: The servers which advertise this file is in the set of directories exported.
@@ -801,7 +802,6 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
 // hf: Existing locations
 // pf: Pending  locations
 // bf: Bounced  locations
-// qf: Queried  locations
 
    if (!(Sel.Opts & XrdCmsSelect::Refresh)
    &&   (retc = Cache.GetFile(Sel, pinfo.rovec)))
@@ -841,7 +841,8 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
        // Record the fact we will query the cache for the file; initialize the query.
        Cache.AddFile(Sel, 0); 
        Sel.Vec.bf = pinfo.rovec; 
-       Sel.Vec.hf = Sel.Vec.pf = Sel.Vec.qf = pmask = smask = 0;
+       Sel.Vec.hf = Sel.Vec.pf = pmask = smask = 0;
+       new_query = true;
        retc = 0;
       }
 
@@ -852,12 +853,19 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
 // Calculate the servers to query, based on the ones we have already queried.
 // If there are available servers to select, do no further queries!
 //
-   qmask = dowt ? (prefs ? prefs->AdditionalNodesToQuery(Sel.Vec.qf) : -1) : 0;
+   SMask_t servers_to_query;
+   if (dowt)
+      if (prefs)
+         servers_to_query = new_query ? prefs->AdditionalNodesToQuery(0) : Sel.Vec.bf;
+      else
+         servers_to_query = -1;
+   else
+      servers_to_query = 0;
+   //TRACE(Files, "New query mask: " << servers_to_query);
 
 // If we can query additional servers, do so now. The client will be placed
 // in the callback queue only if we have no possible selections
 //
-   SMask_t servers_to_query = Sel.Vec.bf & qmask;
    if (servers_to_query)
       {CmsStateRequest QReq = {{Sel.Path.Hash, kYR_state, kYR_raw, 0}};
        if (Sel.Opts & XrdCmsSelect::Refresh)
@@ -866,11 +874,21 @@ int XrdCmsCluster::Select(XrdCmsSelect &Sel, XrdCmsPref *prefs)
        TRACE(Files, "seeking " <<Sel.Path.Val);
        SMask_t unqueryable_servers = Cluster.Broadcast(servers_to_query, QReq.Hdr,
                                                        (void *)Sel.Path.Val,Sel.Path.Len+1);
-       Sel.Vec.qf |= servers_to_query; // Update the queried servers
-       if (unqueryable_servers) Cache.UnkFile(Sel, unqueryable_servers); // Record the errors we incurred.
+
+       // Generate the queries to do next time
+       SMask_t next_servers = unqueryable_servers;
+       if (prefs)
+          next_servers |= prefs->AdditionalNodesToQuery(servers_to_query);
+       //TRACE(Files, "Next query servers " << next_servers);
+       Cache.UnkFile(Sel, next_servers); // Record the errors we incurred and the next server set.
+       
        if (dowt) return retc;
-      } else if (dowt && retc < 0 && !noSel)
-                return (fRD ? Cache.WT4File(Sel,Sel.Vec.hf) : Config.LUPDelay);
+      } else if (dowt && (retc < 0) && !noSel)
+         // There are no servers to query.
+         // We tell the client to wait if there previously was a query in progress
+         // and this query was not a prepare.
+         //
+           return (fRD ? Cache.WT4File(Sel,Sel.Vec.hf) : Config.LUPDelay);
 
 // Broadcast a freshen up request if wanted
 // Note we don't broadcast to the nodes in servers_to_query; these were done above.

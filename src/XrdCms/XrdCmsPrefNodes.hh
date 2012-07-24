@@ -10,7 +10,7 @@
  */
 
 #define XRD_MAX_NODES 64
-#define XRD_MAX_NODE_SIZE 64
+#define XRD_MAX_NODE_SIZE 30
 
 class XrdCmsCluster;
 class XrdCmsNode;
@@ -28,7 +28,12 @@ public:
    /*
     * Get information about a given node.
     */
-   const char * GetNodeName(unsigned int node_number);
+   const char * GetNodeName(unsigned int node_number)
+   {
+      if (node_number >= XRD_MAX_NODES)
+         return 0;
+      return m_node_info + node_number*XRD_MAX_NODE_SIZE;
+   }
 
 protected:
    /*
@@ -38,7 +43,7 @@ protected:
 
 private:
 
-   char * m_node_info;
+   char m_node_info[XRD_MAX_NODES*XRD_MAX_NODE_SIZE];
 
 };
 #endif

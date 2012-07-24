@@ -12,16 +12,13 @@
 #include "XrdCms/XrdCmsNode.hh"
 
 XrdCmsPrefNodes::XrdCmsPrefNodes()
-	: m_node_info(NULL) // Set to null in case "new" throws an exception.
 {
-   m_node_info = new char[XRD_MAX_NODES*XRD_MAX_NODE_SIZE];
-   memset(m_node_info, 0, XRD_MAX_NODES*XRD_MAX_NODE_SIZE);
+   for (unsigned int idx=0; idx<XRD_MAX_NODES; idx++)
+      m_node_info[idx*XRD_MAX_NODE_SIZE] = '\0';
 }
 
 XrdCmsPrefNodes::~XrdCmsPrefNodes()
 {
-   if (m_node_info)
-      delete [] m_node_info;
 }
 
 /*
@@ -34,15 +31,5 @@ int XrdCmsPrefNodes::Acquire(unsigned int node_number, const XrdCmsNode &node)
    if (node.getName(m_node_info + node_number*XRD_MAX_NODE_SIZE, XRD_MAX_NODE_SIZE-1) == 0)
       return 1;
    return 0;
-}
-
-/*
-* Get information about a given node.
-*/
-const char * XrdCmsPrefNodes::GetNodeName(unsigned int node_number)
-{
-   if (node_number >= XRD_MAX_NODES)
-      return NULL;
-   return m_node_info + node_number*XRD_MAX_NODE_SIZE;
 }
 
