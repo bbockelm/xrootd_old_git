@@ -35,7 +35,7 @@ class XrdCmsRRData
 public:
 XrdCms::CmsRRHdr       Request;     // all
         char          *Path;        // all -prepcan
-        char          *Opaque;      // all -prepcan
+        const char    *Opaque;      // all -prepcan
         char          *Path2;       // mv
         char          *Opaque2;     // mv
         char          *Avoid;       // locate, select

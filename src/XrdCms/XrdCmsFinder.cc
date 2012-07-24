@@ -27,7 +27,9 @@
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <inttypes.h>
-  
+
+#include <sstream>
+ 
 #include "XProtocol/YProtocol.hh"
 
 #include "XrdCms/XrdCmsClientConfig.hh"
@@ -302,15 +304,34 @@ int XrdCmsFinderRMT::Locate(XrdOucErrInfo &Resp, const char *path, int flags,
    static const int xNum   = 12;
 
    XrdCmsRRData   Data;
-   int            n, iovcnt;
+   int            iovcnt;
    char           Work[xNum*12];
    struct iovec   xmsg[xNum];
+
+// Try to pass along the client hostname
+//
+  const char * opaque = NULL;
+  std::string opaque_str;
+  if (Env)
+     {int n;
+      const XrdSecEntity * sec = Env->secEnv();
+      if (sec && sec->host && sec->host[0])
+         {const char * env = Env->Env(n);
+          std::stringstream ss;
+          if (env && env[0] != '\0')
+             ss << Env->Env(n);
+          if (!Env->Get("client_host"))
+             ss << "&client_host=" << sec->host;
+          opaque_str = ss.str();
+          opaque = opaque_str.c_str();
+         }
+     }
 
 // Fill out the RR data structure
 //
    Data.Ident   = (char *)(XrdCmsClientMan::doDebug ? Resp.getErrUser() : "");
    Data.Path    = (char *)path;
-   Data.Opaque  = (Env ? Env->Env(n)       : 0);
+   Data.Opaque  = opaque;
    Data.Avoid   = (Env ? Env->Get("tried") : 0);
 
 // Set options and command
