@@ -47,6 +47,21 @@ int XrdCryptosslX509VerifyCB(int ok, X509_STORE_CTX *ctx)
    return ok;
 }
 
+//  Hashing algorithm control
+static bool gX509UseHashOld = 0;
+//____________________________________________________________________________
+void XrdCryptosslSetUseHashOld(bool on)
+{
+   // Set gX509UseHashOld
+   gX509UseHashOld = on;
+}
+//____________________________________________________________________________
+bool XrdCryptosslUseHashOld()
+{
+   // Get gX509UseHashOld
+   return gX509UseHashOld;
+}
+
 //____________________________________________________________________________
 int XrdCryptosslKDFunLen()
 {
@@ -585,6 +600,7 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1)
    // since Epoch (Jan 1, 1970) 
    // Return -1 if something went wrong
    int etime = -1;
+   EPNAME("ASN1toUTC");
 
    //
    // Make sure there is something to convert
@@ -616,20 +632,12 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1)
    // month should in [0, 11]
    (ltm.tm_mon)--;
    //
-   // calculate UTC
+   // Calculate UTC
    etime = mktime(&ltm);
-   //
-   // If GMT we need a correction because mktime use local time zone
-   time_t now = time(0);
-   struct tm ltn, gtn;
-   if (!localtime_r(&now, &ltn)) return etime;
-   if (!gmtime_r(&now, &gtn)) return etime;
-   //
-   // Calculate correction
-   int tzcor = (int) difftime(mktime(&ltn), mktime(&gtn));
-   //
-   // Apply correction
-   etime += tzcor;
+   // Include DST shift; here, because we have the information
+   if (ltm.tm_isdst > 0) etime += XrdCryptoDSTShift;
+   // Notify, if requested
+   DEBUG(" UTC: "<<etime<<"  isdst: "<<ltm.tm_isdst);
    //
    // We are done
    return etime;

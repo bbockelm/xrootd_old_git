@@ -117,6 +117,8 @@ class XrdOucProg;
 class XrdOssSpace;
 class XrdOssStage_Req;
 
+struct XrdVersionInfo;
+
 class XrdOssSys : public XrdOss
 {
 public:
@@ -223,6 +225,8 @@ OssDPath         *DPList;    //    The stat path list
 int               lenDP;
 short             numDP;
 short             numCG;
+
+XrdVersionInfo   *myVersion; //    Compilation version set by constructor
    
          XrdOssSys();
 virtual ~XrdOssSys() {}
@@ -251,6 +255,8 @@ XrdOucProg     *RSSProg;      //    Command for Remote Storage Services
 
 char           *UDir;         // -> Usage logdir
 char           *QFile;        // -> Quota file
+char           *xfrFdir;      // -> Fail file base dir
+int             xfrFdln;      //    strlen(xfrFDir)
 
 int                Alloc_Cache(XrdOssCreateInfo &, XrdOucEnv &);
 int                Alloc_Local(XrdOssCreateInfo &, XrdOucEnv &);

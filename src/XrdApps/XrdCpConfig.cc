@@ -190,7 +190,7 @@ do{while(optind < Argc && Legacy()) {}
           case OpVerbose:  OpSpec |= DoVerbose;
                            Verbose = 1;
                            break;
-          case OpVersion:  cerr <<XrdVSTRING <<endl; exit(0);
+          case OpVersion:  cerr <<XrdVERSION <<endl; exit(0);
                            break;
           case OpXrate:    OpSpec |= DoXrate;
                            if (!a2l(optarg, &xRate, 10*1024LL, 0)) Usage(22);
@@ -437,6 +437,7 @@ int XrdCpConfig::a2z(const char *item, long long *val,
   
 int XrdCpConfig::defCks(const char *opval)
 {
+   static XrdVERSIONINFODEF(myVer, xrdcp, XrdVNUMBER, XrdVERSION);
    const char *Colon = index(opval, ':');
    char  csName[XrdCksData::NameSize];
    int csSize, n;
@@ -444,7 +445,7 @@ int XrdCpConfig::defCks(const char *opval)
 // Initialize the checksum manager if we have not done so already
 //
    if (!CksMan)
-      {CksMan = new XrdCksManager(Log);
+      {CksMan = new XrdCksManager(Log, 0, &myVer);
        if (!(CksMan->Init("")))
           {delete CksMan; CksMan = 0;
            FMSG("Unable to initialize checksum processing.", 13);
@@ -594,7 +595,8 @@ const char *XrdCpConfig::Human(long long inval, char *Buff, int Blen)
     static const char *sfx[] = {" bytes", "KB", "MB", "GB", "TB", "PB"};
     unsigned int i;
 
-    for (i = 0; i < sizeof(sfx)-1 && inval >= 1024; i++) inval = inval/1024;
+    for (i = 0; i < sizeof(sfx)/sizeof(sfx[0]) - 1 && inval >= 1024; i++) 
+        inval = inval/1024;
 
     snprintf(Buff, Blen, "%lld%s", inval, sfx[i]);
     return Buff;
@@ -616,6 +618,7 @@ int XrdCpConfig::Legacy()
       else oArg = Argv[optind+1];
    if (!(rc = Legacy(Argv[optind], oArg))) return 0;
    optind += rc;
+   return 1;
 }
 
 /******************************************************************************/
@@ -638,7 +641,7 @@ int XrdCpConfig::Legacy(const char *theOp, const char *theArg)
 
    if (!strncmp(theOp,"-OD",3) || !strncmp(theOp,"-OS",3)) return defOpq(theOp);
 
-   if (!strcmp(theOp, "-version")) {cerr <<XrdVSTRING <<endl; exit(0);}
+   if (!strcmp(theOp, "-version")) {cerr <<XrdVERSION <<endl; exit(0);}
 
    if (!strcmp(theOp, "-force"))
       FMSG("-force is no longer supported; use --retry instead!",22);

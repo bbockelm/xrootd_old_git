@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <sys/param.h>
 
+#include "XrdVersion.hh"
+
 #include "XrdOuc/XrdOucCRC.hh"
 #include "XrdOuc/XrdOucErrInfo.hh"
 #include "XrdOuc/XrdOucEnv.hh"
@@ -606,8 +608,8 @@ XrdSecCredentials *XrdSecProtocolsss::Encode(XrdOucErrInfo      *einfo,
                                              int                 dLen)
 {
    static const int hdrSZ = sizeof(XrdSecsssRR_Hdr);
-   XrdOucEnv *errEnv;
-   char *myIP, *credP, *eodP = ((char *)rrData) + dLen;
+   XrdOucEnv *errEnv = 0;
+   char *myIP = 0, *credP, *eodP = ((char *)rrData) + dLen;
    int knum, cLen;
 
 // Make sure we have enought space left in the buffer
@@ -851,6 +853,8 @@ char  *XrdSecProtocolsssInit(const char     mode,
 /******************************************************************************/
 /*               X r d S e c P r o t o c o l s s s O b j e c t                */
 /******************************************************************************/
+
+XrdVERSIONINFO(XrdSecProtocolsssObject,secsss);
   
 extern "C"
 {

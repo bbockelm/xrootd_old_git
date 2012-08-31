@@ -32,6 +32,8 @@ extern "C" {
 #endif
 }
 
+#include "XrdVersion.hh"
+
 #include "XrdSys/XrdSysDNS.hh"
 #include "XrdOuc/XrdOucErrInfo.hh"
 #include "XrdSys/XrdSysHeaders.hh"
@@ -960,6 +962,7 @@ char  *XrdSecProtocolkrb5Init(const char     mode,
            XrdSecProtocolkrb5::setParms(params);
            return params;
           }
+       return (char *)0;
       }
 
 // Failure
@@ -1021,3 +1024,4 @@ void
         abort ();
       }
 }
+XrdVERSIONINFO(XrdSecProtocolkrb5Object,seckrb5)

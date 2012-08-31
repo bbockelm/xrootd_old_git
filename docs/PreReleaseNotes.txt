@@ -5,10 +5,28 @@ XRootD
 Prerelease Notes
 ================
 + **New Features**
+   * Liberlize locking structure to prevent lock inversion relative to
+     external locks.
+   * Provide libevent replacement for Linux (epoll), Solaris (poll_create),
+     and others (poll). Note: versions of Solaris less than 10 are no longer
+     supported and they will no longer compile with this update!
+   * Provide a libevent type replacement package.
+   * Allow tracker files (e.g. ".fail") to be placed in a shadow directory.
+     This is controlled by the new fdir option on the oss.xfr directive.
+   * Allow meta-files (i.e. .fail file) to be relocated to a shadow directory
+     using the oss.xfr directive. This avoids polluting the exported name
+     space when an frm transfer operation fails.
    * Create a general place for platform dependent utility methods.
    * Add third party copy statistics to the summary record.
 
 + **Major bug fixes**
+   * Make sure read statistics are updated for sendfile() and mmap I/O.
+   * Remove redundant flag indicating a running poller. This may cause the
+     poller to never be woken up when a timeout value changes.
+   * Make sure refresh thread is dead before deleting deleting the keytab to
+     avoid SEGV's.
+   * Add missing include for compiling with gcc-4.7 (from Sebastien Binet).
+     This patch is required for successful compilation.
    * Fix <exp> tag in ofs statistics. It is improperly terminated and may
      cause certain xml parsers to fail; rendering monitoring useless.
    * Prevent SEGV when xrd.monitor rbuff value not specified.
@@ -25,6 +43,12 @@ Prerelease Notes
      query and only redirect clients to a stageable server if the file is not found. 
 
 + **Minor bug fixes**
+   * Fix minor issues reported by Coverity.
+   * Make sure opendir() returns a null pointer when the directory doesn't
+     exist.
+   * Make sure that XrootdFS returns ENOENT when opendir() returns a null.
+   * Make sure to use correct time to set mtime/atime after a physical reloc.
+   * Correct monitor initialization test to start monitor under all configs.
    * Prevent hangs when doing exterme copy from server to server.
    * Correct log processing for sites that use the root directory as the
      stomping ground for newly created files.
@@ -36,5 +60,6 @@ Prerelease Notes
    * Correct typos XRDPSOIX envars should really be named XRDPOSIX.
 
 + **Miscellaneous**
+   * Add port to prepare request struct as documented in 2.9.9.
    * Add pathid to readv request struct as documented in 2.9.9.
 
