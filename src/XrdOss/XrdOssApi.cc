@@ -3,9 +3,28 @@
 /*                          X r d O s s A p i . c c                           */
 /*                                                                            */
 /* (c) 2006 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*                DE-AC03-76-SFO0515 with the Deprtment of Energy             */
+/*                DE-AC02-76-SFO0515 with the Deprtment of Energy             */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 /******************************************************************************/
@@ -73,14 +92,20 @@ char      XrdOssSys::chkMmap = 0;
 // object. If a plugin library has been specified, then this function will
 // return the object provided by XrdOssGetStorageSystem() within the library.
 //
-XrdOss *XrdOssGetSS(XrdSysLogger *Logger, const char   *config_fn,
-                    const char   *OssLib)
+XrdOss *XrdOssGetSS(XrdSysLogger *Logger, const char *config_fn,
+                    const char   *OssLib, const char *OssParms,
+                    XrdVersionInfo &urVer)
 {
    static XrdOssSys   myOssSys;
    extern XrdSysError OssEroute;
    XrdSysPlugin    *myLib;
    XrdOss          *(*ep)(XrdOss *, XrdSysLogger *, const char *, const char *);
-   char *parms;
+   int Debug = (getenv("XRDDEBUG") != 0);
+
+// Verify that versions are compatible.
+//
+   if (urVer.vNum != myOssSys.myVersion->vNum
+   &&  !XrdSysPlugin::VerCmp(urVer, *(myOssSys.myVersion))) return 0;
 
 // If no library has been specified, return the default object
 //
@@ -88,19 +113,11 @@ XrdOss *XrdOssGetSS(XrdSysLogger *Logger, const char   *config_fn,
                     else return (XrdOss *)&myOssSys;
                 }
 
-// Find the parms (ignore the constness of the variable)
-//
-   parms = (char *)OssLib;
-   while(*parms && *parms != ' ') parms++;
-   if (*parms) *parms++ = '\0';
-   while(*parms && *parms == ' ') parms++;
-   if (!*parms) parms = 0;
-
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// Create a plugin object
 //
    OssEroute.logger(Logger);
-   if (!(myLib = new XrdSysPlugin(&OssEroute, OssLib))) return 0;
+   if (!(myLib = new XrdSysPlugin(&OssEroute, OssLib, "osslib",
+                                  myOssSys.myVersion))) return 0;
 
 // Now get the entry point of the object creator
 //
@@ -110,7 +127,8 @@ XrdOss *XrdOssGetSS(XrdSysLogger *Logger, const char   *config_fn,
 
 // Get the Object now
 //
-   return ep((XrdOss *)&myOssSys, Logger, config_fn, parms);
+   myLib->Persist(); delete myLib;
+   return ep((XrdOss *)&myOssSys, Logger, config_fn, OssParms);
 }
  
 /******************************************************************************/

@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #ifndef __macos__
@@ -192,6 +212,7 @@ void XrdPollE::remFD(XrdLink *lp, unsigned int events)
   
 void XrdPollE::Start(XrdSysSemaphore *syncsem, int &retcode)
 {
+   char eBuff[64];
    int i, numpolled, num2sched;
    XrdJob *jfirst, *jlast;
    const short pollOK = EPOLLIN | EPOLLPRI;
@@ -221,7 +242,7 @@ void XrdPollE::Start(XrdSysSemaphore *syncsem, int &retcode)
                if (!(lp->isEnabled)) remFD(lp, PollTab[i].events);
                   else {lp->isEnabled = 0;
                         if (!(PollTab[i].events & pollOK))
-                           Finish(lp, x2Text(PollTab[i].events));
+                           Finish(lp, x2Text(PollTab[i].events, eBuff));
                         lp->NextJob = jfirst; jfirst = (XrdJob *)lp;
                         if (!jlast) jlast=(XrdJob *)lp;
                         num2sched++;
@@ -244,15 +265,12 @@ void XrdPollE::Start(XrdSysSemaphore *syncsem, int &retcode)
 /*                                x 2 T e x t                                 */
 /******************************************************************************/
   
-char *XrdPollE::x2Text(unsigned int events)
+const char *XrdPollE::x2Text(unsigned int events, char *buff)
 {
-   if (events & EPOLLERR) return strdup("socket error");
+   if (events & EPOLLERR) return "socket error";
 
-   if (events & EPOLLHUP) return strdup("client disconnected");
+   if (events & EPOLLHUP) return "client disconnected";
 
-  {char buff[64];
    sprintf(buff, "unusual event (%.4x)", events);
-   return strdup(buff);
-  }
-  return (char *)0;
+   return buff;
 }

@@ -3,9 +3,28 @@
 /*                       X r d F r m C o n f i g . c c                        */
 /*                                                                            */
 /* (c) 2009 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*                DE-AC02-76-SFO0515 with the Deprtment of Energy             */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
   
 #include <unistd.h>
@@ -18,6 +37,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+
+#include "XrdVersion.hh"
 
 #include "Xrd/XrdInfo.hh"
 #include "XrdCks/XrdCksConfig.hh"
@@ -34,7 +55,7 @@
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucExport.hh"
 #include "XrdOuc/XrdOucMsubs.hh"
-#include "XrdOuc/XrdOucName2Name.hh"
+#include "XrdOuc/XrdOucN2NLoader.hh"
 #include "XrdOuc/XrdOucProg.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucPList.hh"
@@ -45,7 +66,6 @@
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysHeaders.hh"
 #include "XrdSys/XrdSysLogger.hh"
-#include "XrdSys/XrdSysPlugin.hh"
 #include "XrdSys/XrdSysTimer.hh"
 #include "XrdSys/XrdSysPlatform.hh"
 #include "XrdSys/XrdSysPthread.hh"
@@ -123,14 +143,17 @@ void *XrdLogWorker(void *parg)
 /******************************************************************************/
 /*                           C o n s t r u c t o r                            */
 /******************************************************************************/
+
   
 XrdFrmConfig::XrdFrmConfig(SubSys ss, const char *vopts, const char *uinfo)
              : dfltPolicy("*", -2, -3, 72000, 0)
 {
+   static XrdVERSIONINFODEF(myVer, XrdFrm, XrdVNUMBER, XrdVERSION);
    char *sP, buff[128];
 
 // Preset all variables with common defaults
 //
+   myVersion= &myVer;
    vOpts    = vopts;
    uInfo    = uinfo;
    ssID     = ss;
@@ -150,6 +173,7 @@ XrdFrmConfig::XrdFrmConfig(SubSys ss, const char *vopts, const char *uinfo)
    xfrIN    = xfrOUT = 0;
    isAgent  = (getenv("XRDADMINPATH") ? 1 : 0);
    ossLib   = 0;
+   ossParms = 0;
    cmsPath  = 0;
    haveCMS  = 0;
    isOTO    = 0;
@@ -177,6 +201,9 @@ XrdFrmConfig::XrdFrmConfig(SubSys ss, const char *vopts, const char *uinfo)
    CksAlg   = 0;
    CksCfg   = 0;
    CksMan   = 0;
+
+   xfrFdir  = 0;
+   xfrFdln  = 0;
 
 // Establish our instance name
 //
@@ -215,7 +242,8 @@ XrdFrmConfig::XrdFrmConfig(SubSys ss, const char *vopts, const char *uinfo)
   
 int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
 {
-   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *);
+   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *,
+                              const char   *, XrdVersionInfo &);
    extern int *XrdOssRunMode;
    XrdFrmConfigSE theSE;
    int n, retc, isMum = 0, myXfrMax = -1, NoGo = 0, optBG = 0;
@@ -294,7 +322,8 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
    if (ssID != ssAdmin)
       {if (!logfn)
           {if (isAgent && (logfn = getenv("XRDLOGDIR")))
-              {sprintf(buff, "%s%s%clog", logfn, myFrmid, (isAgent ? 'a' : 'd'));
+              {snprintf(buff, sizeof(buff), "%s%s%clog", logfn, myFrmid,
+                                           (isAgent ? 'a' : 'd'));
                logfn = strdup(buff);
               }
           } else if (!(logfn=XrdOucUtils::subLogfn(Say,myInst,logfn))) _exit(16);
@@ -330,7 +359,7 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
 // Set the Environmental variables to hold some config information
 // XRDINSTANCE=<pgm> <instance name>@<host name>
 //
-   sprintf(buff,"XRDINSTANCE=%s %s@%s",myProg,
+   snprintf(buff,sizeof(buff), "XRDINSTANCE=%s %s@%s",myProg,
                  XrdOucUtils::InstName(myInst), myName);
    putenv(strdup(buff)); // XRDINSTANCE
    myInstance = strdup(index(buff,'=')+1);
@@ -367,7 +396,8 @@ int XrdFrmConfig::Configure(int argc, char **argv, int (*ppf)())
        XrdOucEnv::Export("XRDOSSTYPE",  myFrmID);
        if (ssID == ssPurg) XrdOucEnv::Export("XRDOSSCSCAN", "off");
        if (!NoGo)
-          {if (!(ossFS=XrdOssGetSS(Say.logger(),ConfigFN,ossLib))) NoGo=1;
+          {if (!(ossFS=XrdOssGetSS(Say.logger(), ConfigFN, ossLib, ossParms,
+                                   *myVersion))) NoGo = 1;
               else runNew = !(runOld = XrdOssRunMode ? *XrdOssRunMode : 0);
           }
       }
@@ -662,7 +692,7 @@ int XrdFrmConfig::ConfigMP(const char *pType)
 //
    if (!mypList)
       {XrdOucPList *fP = XrdOssRPList->First();
-       short sval[2];
+       short sval[4];    // Last two elements are unused
        while(fP)
             {sval[0] = (fP->Flag() & XRDEXP_MAKELF ? 1 : 0);
              sval[1] = fP->Plen();
@@ -789,36 +819,26 @@ int XrdFrmConfig::ConfigMum(XrdFrmConfigSE &theSE)
 
 int XrdFrmConfig::ConfigN2N()
 {
-   XrdSysPlugin    *myLib;
-   XrdOucName2Name *(*ep)(XrdOucgetName2NameArgs);
+   XrdOucN2NLoader n2nLoader(&Say,ConfigFN,N2N_Parms,LocalRoot,RemoteRoot);
 
-// If we have no library path then use the default method (this will always
-// succeed).
+// Check if we really need to configure this
 //
-   if (!N2N_Lib)
-      {the_N2N = XrdOucgetName2Name(&Say, ConfigFN, "", LocalRoot, RemoteRoot);
-       if (LocalRoot)  lcl_N2N = the_N2N;
-       if (RemoteRoot) rmt_N2N = the_N2N;
-       return 0;
-      }
+   if (!N2N_Lib && !LocalRoot && !RemoteRoot) return 0;
 
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// Get the plugin
 //
-   if (!(myLib = new XrdSysPlugin(&Say, N2N_Lib))) return 1;
+   if (!(the_N2N = n2nLoader.Load(N2N_Lib, *myVersion))) return 1;
 
-// Now get the entry point of the object creator
+// Optimize the local case
 //
-   ep = (XrdOucName2Name *(*)(XrdOucgetName2NameArgs))(myLib->getPlugin("XrdOucgetName2Name"));
-   if (!ep) return 1;
+   if (N2N_Lib)   rmt_N2N = lcl_N2N = the_N2N;
+      else {if (LocalRoot)  lcl_N2N = the_N2N;
+            if (RemoteRoot) rmt_N2N = the_N2N;
+           }
 
-
-// Get the Object now
+// All done
 //
-   lcl_N2N = rmt_N2N = the_N2N = ep(&Say, ConfigFN, 
-                                   (N2N_Parms ? N2N_Parms : ""),
-                                   LocalRoot, RemoteRoot);
-   return lcl_N2N == 0;
+   return 0;
 }
   
 /******************************************************************************/
@@ -906,7 +926,7 @@ void XrdFrmConfig::ConfigPF(const char *pFN)
 
 // Construct pidfile name
 //
-   if (myInst) sprintf(buff, "%s/%s/%s.pid", ppP, myInst, pFN);
+   if (myInst) snprintf(buff, sizeof(buff), "%s/%s/%s.pid", ppP, myInst, pFN);
       else sprintf(buff, "%s/%s.pid", ppP, pFN);
 
 // Open the pidfile creating it if necessary
@@ -934,7 +954,10 @@ int XrdFrmConfig::ConfigProc()
 
 // Allocate a chksum configurator if needed
 //
-   if (ssID == ssAdmin) CksCfg = new XrdCksConfig(ConfigFN, &Say);
+   if (ssID == ssAdmin)
+      {CksCfg = new XrdCksConfig(ConfigFN, &Say, retc, myVersion);
+       if (!retc) return 1;
+      }
 
 // Try to open the configuration file.
 //
@@ -983,7 +1006,7 @@ int XrdFrmConfig::ConfigXeq(char *var, int mbok)
       {
        if (!strcmp(var, "frm.xfr.qcheck")) return xqchk();
        if (!strcmp(var, "ofs.ckslib"    )) return xcks(1);
-       if (!strcmp(var, "ofs.osslib"    )) return Grab(var, &ossLib,    0);
+       if (!strcmp(var, "ofs.osslib"    )) return xoss();
        if (!strcmp(var, "oss.cache"     )){hasCache = 1; // runOld
                                            return xspace(0,0);
                                           }
@@ -994,6 +1017,7 @@ int XrdFrmConfig::ConfigXeq(char *var, int mbok)
        if (!strcmp(var, "xrootd.chksum" )) return xcks();
 //     if (!strcmp(var, "oss.mssgwcmd"  )) return Grab(var, &MSSCmd,    0);
 //     if (!strcmp(var, "oss.msscmd"    )) return Grab(var, &MSSCmd,    0);
+       if (!strcmp(var, "oss.xfr"       )) return xxfr();
       }
 
    if (ssID == ssXfr)
@@ -1645,6 +1669,40 @@ int XrdFrmConfig::xnml()
 }
 
 /******************************************************************************/
+/* Private:                         x o s s                                   */
+/******************************************************************************/
+  
+
+/* Function: xoss
+
+   Purpose:  To parse the directive: osslib <path>
+
+             <path>    the path of the filesystem library to be used.
+
+  Output: 0 upon success or !0 upon failure.
+*/
+
+int XrdFrmConfig::xoss()
+{
+    char *val, parms[1024];
+
+// Get the path
+//
+   if (!(val = cFile->GetWord()) || !val[0])
+      {Say.Emsg("Config", "osslib not specified"); return 1;}
+   if (ossLib) free(ossLib);
+   ossLib = strdup(val);
+
+// Record any parms
+//
+   if (!cFile->GetRest(parms, sizeof(parms)))
+      {Say.Emsg("Config", "osslib parameters too long"); return 1;}
+   if (ossParms) free(ossParms);
+   ossParms = (*parms ? strdup(parms) : 0);
+   return 0;
+}
+
+/******************************************************************************/
 /* Private:                         x p o l                                   */
 /******************************************************************************/
 
@@ -2006,9 +2064,10 @@ void XrdFrmConfig::xspaceBuild(char *grp, char *fn, int isxa)
   
 /* Function: xxfr
 
-   Purpose:  To parse the directive: xfr [deny <sec>] [keep <sec>]
+   Purpose:  To parse the directive: xfr [deny <sec>] [fdir <path>] [keep <sec>]
 
              deny      number of seconds that a fail file rejects a request
+             fdir      base directory where fail files are kept
              keep      number of seconds to keep queued requests (ignored)
 
    Output: 0 upon success or !0 upon failure.
@@ -2016,32 +2075,44 @@ void XrdFrmConfig::xspaceBuild(char *grp, char *fn, int isxa)
 
 int XrdFrmConfig::xxfr()
 {
+    static const int maxfdln = 256;
+    const char *wantParm = 0;
     char *val;
     int       htime = 3*60*60;
-    int       haveparm = 0;
 
     while((val = cFile->GetWord()))        // deny | keep
          {     if (!strcmp("deny", val))
-                  {if ((val = cFile->GetWord()))     // keep time
-                      {if (XrdOuca2x::a2tm(Say,"xfr deny",val,&htime,0))
-                          return 1;
-                       FailHold = htime, haveparm=1;
+                  {wantParm = "xfr deny";
+                   if ((val = cFile->GetWord()))     // keep time
+                      {if (XrdOuca2x::a2tm(Say,wantParm,val,&htime,0)) return 1;
+                       FailHold = htime, wantParm=0;
+                      }
+                  }
+          else if (!strcmp("fdir", val))
+                  {wantParm = "xfr fdir";
+                   if ((val = cFile->GetWord()))     // fdir path
+                      {if (xfrFdir) free(xfrFdir);
+                       xfrFdln = strlen(val);
+                       if (xfrFdln > maxfdln)
+                          {Say.Emsg("Config","xfr fdir path too long");
+                           xfrFdir = 0; xfrFdln = 0; return 1;
+                          }
+                       xfrFdir = strdup(val);
+                       wantParm = 0;
                       }
                   }
           else if (!strcmp("keep", val))
-                  {if ((val = cFile->GetWord()))     // keep time
-                      {if (XrdOuca2x::a2tm(Say,"xfr keep",val,&htime,0))
-                          return 1;
-                       haveparm=1;
+                  {wantParm = "xfr keep";
+                   if ((val = cFile->GetWord()))     // keep time
+                      {if (XrdOuca2x::a2tm(Say,wantParm,val,&htime,0)) return 1;
+                       wantParm=0;
                       }
                   }
           else break;
          };
 
-    if (!val)
-       {if (haveparm) return 0;
-        else {Say.Emsg("Config", "xfr parameter not specified"); return 1;}
-       }
+    if (!val && wantParm)
+       {Say.Emsg("Config", wantParm, "value not specified"); return 1;}
 
     return 0;
 }

@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 /*
@@ -57,7 +77,7 @@
 #include "XrdOuc/XrdOuca2x.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucExport.hh"
-#include "XrdOuc/XrdOucName2Name.hh"
+#include "XrdOuc/XrdOucN2NLoader.hh"
 #include "XrdOuc/XrdOucProg.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucUtils.hh"
@@ -594,6 +614,7 @@ int XrdCmsConfig::GenLocalPath(const char *oldp, char *newp)
 void XrdCmsConfig::ConfigDefaults(void)
 {
    extern long timezone;
+   static XrdVERSIONINFODEF(myVer, cmsd, XrdVNUMBER, XrdVERSION);
    time_t myTime = time(0);
    struct tm *tmP = localtime(&myTime);
    int myTZ, isEast = 0;
@@ -685,7 +706,9 @@ void XrdCmsConfig::ConfigDefaults(void)
    DirFlags    = 0;
    SecLib      = 0;
    ossLib      = 0;
+   ossParms    = 0;
    ossFS       = 0;
+   myVInfo     = &myVer;
 
 // Compute the time zone we are in
 //
@@ -701,36 +724,20 @@ void XrdCmsConfig::ConfigDefaults(void)
 
 int XrdCmsConfig::ConfigN2N()
 {
-   XrdSysPlugin    *myLib;
-   XrdOucName2Name *(*ep)(XrdOucgetName2NameArgs);
+   XrdOucN2NLoader n2nLoader(&Say, ConfigFN, N2N_Parms, LocalRoot, RemotRoot);
 
-// If we have no library path then use the default method (this will always
-// succeed).
+// Get the plugin
 //
-   if (!N2N_Lib)
-      {if (LocalRoot || (RemotRoot && XmiPath))
-          {xeq_N2N = XrdOucgetName2Name(&Say,ConfigFN,"",LocalRoot,RemotRoot);
-           if (LocalRoot) lcl_N2N = xeq_N2N;
-          }
-       PrepQ.setParms(xeq_N2N);
-       return 0;
-      }
+   if (!(xeq_N2N = n2nLoader.Load(N2N_Lib, *myVInfo))) return 1;
 
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// Optimize the local case
 //
-   if (!(myLib = new XrdSysPlugin(&Say, N2N_Lib))) return 1;
+   if (N2N_Lib || LocalRoot || (RemotRoot && XmiPath)) lcl_N2N = xeq_N2N;
 
-// Now get the entry point of the object creator
+// All done
 //
-   ep = (XrdOucName2Name *(*)(XrdOucgetName2NameArgs))(myLib->getPlugin("XrdOucgetName2Name"));
-   if (!ep) return 1;
-
-// Get the Object now
-//
-   lcl_N2N = ep(&Say,ConfigFN,(N2N_Parms ? N2N_Parms : ""),LocalRoot,RemotRoot);
    PrepQ.setParms(lcl_N2N);
-   return lcl_N2N == 0;
+   return 0;
 }
   
 /******************************************************************************/
@@ -739,7 +746,8 @@ int XrdCmsConfig::ConfigN2N()
 
 int XrdCmsConfig::ConfigOSS()
 {
-   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *);
+   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *,
+                              const char   *, XrdVersionInfo &);
 
 // Set up environment for the OSS to keep it relevant for cmsd
 //
@@ -754,7 +762,7 @@ int XrdCmsConfig::ConfigOSS()
 
 // Load and return result
 //
-   return !(ossFS=XrdOssGetSS(Say.logger(),ConfigFN,ossLib));
+   return !(ossFS=XrdOssGetSS(Say.logger(),ConfigFN,ossLib,ossParms,*myVInfo));
 }
 
 /******************************************************************************/
@@ -1140,7 +1148,7 @@ int XrdCmsConfig::setupXmi()
 // Create a pluin object (we will throw this away without deletion because
 // the library must stay open but we never want to reference it again).
 //
-   if (!(xmiLib = new XrdSysPlugin(&Say, XmiPath))) return 1;
+   if (!(xmiLib = new XrdSysPlugin(&Say, XmiPath, "xmilib", myVInfo))) return 1;
 
 // Now get the entry point of the object creator
 //
@@ -1929,7 +1937,7 @@ int XrdCmsConfig::xolib(XrdSysError *eDest, XrdOucStream &CFile)
 // Record any parms
 //
    if (!CFile.GetRest(parms, sizeof(parms)))
-      {eDest->Emsg("Config", "namelib parameters too long"); return 1;}
+      {eDest->Emsg("Config", "osslib parameters too long"); return 1;}
    if (ossParms) free(ossParms);
    ossParms = (*parms ? strdup(parms) : 0);
    return 0;

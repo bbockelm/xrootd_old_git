@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <unistd.h>
@@ -20,16 +40,14 @@
 #include <sys/un.h>
 #include <fcntl.h>
 
+#include "XrdVersion.hh"
+
 #include "XrdFfs/XrdFfsDent.hh"
 #include "XrdFfs/XrdFfsMisc.hh"
 #include "XrdFfs/XrdFfsWcache.hh"
 #include "XrdFfs/XrdFfsQueue.hh"
 
 #include "XrdPss/XrdPss.hh"
-
-#include "XrdOuc/XrdOuca2x.hh"
-#include "XrdOuc/XrdOucEnv.hh"
-#include "XrdOuc/XrdOucExport.hh"
 
 #include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -38,7 +56,11 @@
 #include "XrdSys/XrdSysPlugin.hh"
 #include "XrdSys/XrdSysPthread.hh"
 
+#include "XrdOuc/XrdOuca2x.hh"
 #include "XrdOuc/XrdOucCache.hh"
+#include "XrdOuc/XrdOucEnv.hh"
+#include "XrdOuc/XrdOucExport.hh"
+#include "XrdOuc/XrdOucN2NLoader.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucTList.hh"
 #include "XrdOuc/XrdOucUtils.hh"
@@ -94,7 +116,6 @@ static const int maxHLen = 1024;
 }
 
 using namespace XrdProxy;
-
   
 /******************************************************************************/
 /*            E x t e r n a l   T h r e a d   I n t e r f a c e s             */
@@ -327,34 +348,17 @@ int XrdPssSys::ConfigProc(const char *Cfn)
 
 int XrdPssSys::ConfigN2N()
 {  
-   XrdSysPlugin    *myLib;
-   XrdOucName2Name *(*ep)(XrdOucgetName2NameArgs);
+   XrdOucN2NLoader n2nLoader(&eDest, ConfigFN, N2NParms, LocalRoot, 0);
 
-// Check if we are going to do simple local root prefixing
+// Skip all of this we are not doing name mapping
 //
-   if (!N2NLib)
-      {if (LocalRoot)
-          {theN2N = XrdOucgetName2Name(&eDest, ConfigFN, "", LocalRoot, NULL);
-           XrdOucEnv::Export("XRDLCLROOT", LocalRoot);
-          }
-       return 0;
-      }
+  if (!N2NLib && !LocalRoot) return 0;
 
-// Create a plugin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
-// 
-   if (!(myLib = new XrdSysPlugin(&eDest, N2NLib))) return 1;
-
-// Now get the entry point of the object creator
-// 
-   ep = (XrdOucName2Name *(*)(XrdOucgetName2NameArgs))(myLib->getPlugin("XrdOucgetName2Name"));
-   if (!ep) return 1;
-
-
-// Get the Object now
-// 
-   theN2N = ep(&eDest, ConfigFN, (N2NParms ? N2NParms : ""), LocalRoot, NULL);
-   return theN2N == 0;
+// Get the plugin
+//
+   if ((theN2N = n2nLoader.Load(N2NLib, *myVersion)))
+      return 0;
+   return 1;
 }
 
 /******************************************************************************/
@@ -404,25 +408,20 @@ int XrdPssSys::ConfigXeq(char *var, XrdOucStream &Config)
 
 int XrdPssSys::getCache()
 {
-   XrdSysPlugin    *myLib;
+   XrdSysPlugin     myLib(&eDest, cPath, "cachelib", myVersion);
    XrdOucCache     *(*ep)(XrdSysLogger *, const char *, const char *);
    XrdOucCache     *theCache;
-
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
-//
-   if (!(myLib = new XrdSysPlugin(&eDest, cPath))) return 0;
 
 // Now get the entry point of the object creator
 //
    ep = (XrdOucCache *(*)(XrdSysLogger *, const char *, const char *))
-                    (myLib->getPlugin("XrdOucGetCache"));
+                    (myLib.getPlugin("XrdOucGetCache"));
    if (!ep) return 0;
 
 // Get the Object now
 //
    theCache = ep(eDest.logger(), ConfigFN, cParm);
-   if (theCache) XrdPosixXrootd::setCache(theCache);
+   if (theCache) {XrdPosixXrootd::setCache(theCache); myLib.Persist();}
       else eDest.Emsg("Config", "Unable to get cache object from", cPath);
    return theCache != 0;
 }

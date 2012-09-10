@@ -4,6 +4,26 @@
 /*                                                                            */
 /* (c) 2005, G. Ganis / CERN                                                  */
 /*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/*                                                                            */
 /******************************************************************************/
 
 /* ************************************************************************** */
@@ -100,7 +120,7 @@ int main( int argc, char **argv )
    int secValid = 0;
    XrdProxyOpt_t pxopt;
    XrdCryptosslgsiX509Chain *cPXp = 0;
-   XrdCryptoX509 *xPXp = 0;
+   XrdCryptoX509 *xPXp = 0, *xPXPp = 0;
    XrdCryptoRSA *kPXp = 0;
    XrdCryptoX509ParseFile_t ParseFile = 0;
    int prc = 0;
@@ -200,6 +220,14 @@ int main( int argc, char **argv )
       if (xPXp) {
          if (!Exists) {
             Display(xPXp);
+            if (strstr(xPXp->Subject(), "CN=limited proxy")) {
+               xPXPp = cPXp->SearchBySubject(xPXp->Issuer());
+               if (xPXPp) {
+                  Display(xPXPp);
+               } else {
+                  PRT("WARNING: found 'limited proxy' but not the associated proxy!");
+               }
+            }
          } else {
             // Check time validity
             secValid = XrdSutParseTime(Valid.c_str(), 1);
@@ -675,12 +703,8 @@ void Display(XrdCryptoX509 *xp)
    // Key strength
    PRT("bits        : "<<xp->BitStrength());
    // Time left
-   time_t now = time(0);
-   int tl = xp->NotAfter() -(int)now;
-   // If GMT we need a correction because mktime use local time zone
-   struct tm ltn, gtn;
-   if (localtime_r(&now, &ltn) != 0 && gmtime_r(&now, &gtn) != 0)
-      tl += (int) difftime(mktime(&ltn), mktime(&gtn));
+   int now = int(time(0)) - XrdCryptoTZCorr();
+   int tl = xp->NotAfter() - now;
    int hh = (tl >= 3600) ? (tl/3600) : 0; tl -= (hh*3600); 
    int mm = (tl >= 60)   ? (tl/60)   : 0; tl -= (mm*60); 
    int ss = (tl >= 0)    ?  tl       : 0; 

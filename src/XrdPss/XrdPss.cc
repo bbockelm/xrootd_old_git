@@ -3,9 +3,28 @@
 /*                             X r d P s s . c c                              */
 /*                                                                            */
 /* (c) 2007 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*                DE-AC03-76-SFO0515 with the Deprtment of Energy             */
+/*                DE-AC02-76-SFO0515 with the Deprtment of Energy             */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 /******************************************************************************/
@@ -66,6 +85,8 @@ using namespace XrdProxy;
 /******************************************************************************/
 /*                XrdOssGetSS (a.k.a. XrdOssGetStorageSystem)                 */
 /******************************************************************************/
+
+XrdVERSIONINFO(XrdOssGetStorageSystem,XrdPss);
   
 // This function is called by the OFS layer to retrieve the Storage System
 // object. We return our proxy storage system object if configuration succeeded.
@@ -87,6 +108,15 @@ XrdOss *XrdOssGetStorageSystem(XrdOss       *native_oss,
 /******************************************************************************/
 /*                      o o s s _ S y s   M e t h o d s                       */
 /******************************************************************************/
+/******************************************************************************/
+/*                           C o n s t r u c t o r                            */
+/******************************************************************************/
+  
+XrdPssSys::XrdPssSys() : LocalRoot(0), N2NLib(0), N2NParms(0), theN2N(0),
+                         DirFlags(0), cPath(0), cParm(0),
+                         myVersion(&XrdVERSIONINFOVAR(XrdOssGetStorageSystem)),
+                         TraceLvl(0) {}
+
 /******************************************************************************/
 /*                                  i n i t                                   */
 /******************************************************************************/

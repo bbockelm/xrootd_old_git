@@ -3,9 +3,28 @@
 /*                             X r d O f s . c c                              */
 /*                                                                            */
 /* (c) 2004 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*               DE-AC03-76-SFO0515 with the Deprtment of Energy              */
+/*               DE-AC02-76-SFO0515 with the Deprtment of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <unistd.h>
@@ -22,8 +41,6 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
-
-#include "XrdVersion.hh"
 
 #include "XrdCks/XrdCks.hh"
 #include "XrdCks/XrdCksConfig.hh"
@@ -116,6 +133,7 @@ XrdOfs::XrdOfs()
    CmsLib        = 0;
    CmsParms      = 0;
    OssLib        = 0;
+   OssParms      = 0;
    Finder        = 0;
    Balancer      = 0;
    evsObject     = 0;
@@ -1548,12 +1566,6 @@ int XrdOfs::getStats(char *buff, int blen)
    return n;
 }
   
-/******************************************************************************/
-/*                            g e t V e r s i o n                             */
-/******************************************************************************/
-  
-const char *XrdOfs::getVersion() {return XrdVSTRING;}
-
 /******************************************************************************/
 /*                                 m k d i r                                  */
 /******************************************************************************/

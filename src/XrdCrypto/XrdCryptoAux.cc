@@ -1,14 +1,29 @@
-// $Id$
-
-const char *XrdCryptoAuxCVSID = "$Id$";
 /******************************************************************************/
 /*                                                                            */
 /*                      X r d C r y p t o A u x . c c                         */
 /*                                                                            */
 /* (c) 2004 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
-/*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*              DE-AC03-76-SFO0515 with the Department of Energy              */
+/*   Produced by Geri Ganis for CERN                                          */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <XrdSys/XrdSysLogger.hh>
@@ -22,6 +37,10 @@ const char *XrdCryptoAuxCVSID = "$Id$";
 static XrdSysLogger Logger;
 static XrdSysError eDest(0,"crypto_");
 XrdOucTrace *cryptoTrace = 0;
+//
+// Time Zone correction (wrt UTC)
+static int TZCorr = 0;
+static bool TZInitialized = 0;
 
 /******************************************************************************/
 /*  X r d C r y p t o S e t T r a c e                                         */
@@ -49,4 +68,24 @@ void XrdCryptoSetTrace(kXR_int32 trace)
       if ((trace & cryptoTRACE_Dump))
          cryptoTrace->What |= cryptoTRACE_ALL;
    }
+}
+
+/******************************************************************************/
+/*  X r d C r y p t o T i m e G m                                             */
+/******************************************************************************/
+//______________________________________________________________________________
+int XrdCryptoTZCorr()
+{
+   // Time Zone correction (wrt UTC)
+   
+   if (!TZInitialized) {
+      time_t now = time(0), lct = 0, gmt = 0;
+      struct tm ltn, gtn;
+      if (localtime_r(&now, &ltn) != 0 && gmtime_r(&now, &gtn) != 0) {
+         TZCorr = int(difftime(mktime(&ltn), mktime(&gtn)));
+         TZInitialized = 1;
+      }
+   }
+   // Done
+   return TZCorr;
 }

@@ -1,14 +1,30 @@
-// $Id$
-
-const char *XrdCryptosslX509ReqCVSID = "$Id$";
 /******************************************************************************/
 /*                                                                            */
 /*                 X r d C r y p t o s s l X 5 0 9 R e q. c c                 */
 /*                                                                            */
 /* (c) 2005 G. Ganis , CERN                                                   */
 /*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/*                                                                            */
 /******************************************************************************/
-
 
 /* ************************************************************************** */
 /*                                                                            */
@@ -167,12 +183,13 @@ const char *XrdCryptosslX509Req::SubjectHash()
 
       // Make sure we have a certificate
       if (creq) {
-         char chash[15];
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L
-         sprintf(chash,"%08lx.0",X509_NAME_hash_old(creq->req_info->subject));
-#else
-         sprintf(chash,"%08lx.0",X509_NAME_hash(creq->req_info->subject));
+         char chash[15] = {0};
+#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+         if (XrdCryptosslUseHashOld())
+            snprintf(chash,15,"%08lx.0",X509_NAME_hash_old(creq->req_info->subject));
 #endif
+         if (chash[0] == 0)
+            snprintf(chash,15,"%08lx.0",X509_NAME_hash(creq->req_info->subject));
          subjecthash = chash;
       } else {
          DEBUG("WARNING: no certificate available - cannot extract subject hash");

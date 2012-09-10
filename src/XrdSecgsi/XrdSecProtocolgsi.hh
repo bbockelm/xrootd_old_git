@@ -1,11 +1,31 @@
-// $Id$
 /******************************************************************************/
 /*                                                                            */
 /*                 X r d S e c P r o t o c o l g s i . h h                    */
 /*                                                                            */
 /* (c) 2005 G. Ganis / CERN                                                   */
 /*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/*                                                                            */
 /******************************************************************************/
+
 #include <XrdOuc/XrdOucErrInfo.hh>
 #include <XrdSys/XrdSysPthread.hh>
 #include <XrdOuc/XrdOucString.hh>
@@ -122,7 +142,9 @@ typedef char *(*XrdSecgsiGMAP_t)(const char *, int);
 typedef int (*XrdSecgsiAuthz_t)(XrdSecEntity &);
 typedef int (*XrdSecgsiAuthzInit_t)(const char *);
 typedef int (*XrdSecgsiAuthzKey_t)(XrdSecEntity &, char **);
-
+// VOMS extraction
+typedef XrdSecgsiAuthz_t XrdSecgsiVOMS_t;
+typedef XrdSecgsiAuthzInit_t XrdSecgsiVOMSInit_t;
 //
 // This a small class to set the relevant options in one go
 //
@@ -164,7 +186,10 @@ public:
    int    authzpxy; // [s] if 1 make proxy available in exported form in the 'endorsement'
                     //     field of the XrdSecEntity object for use in XrdAcc
    int    vomsat; // [s] 0 do not look for; 1 extract if any
+   char  *vomsfun;// [s] file with the function to fill VOMS [0]
+   char  *vomsfunparms;// [s] parameters for the function to fill VOMS [0]
    int    moninfo; // [s] 0 do not look for; 1 use DN as default
+   int    sslhash; // [cs] 1 use current hashing algorithm; 0 use the old one [1]
 
    gsiOptions() { debug = -1; mode = 's'; clist = 0; 
                   certdir = 0; crldir = 0; crlext = 0; cert = 0; key = 0;
@@ -173,7 +198,8 @@ public:
                   gridmap = 0; gmapto = -1;
                   gmapfun = 0; gmapfunparms = 0; authzfun = 0; authzfunparms = 0; authzto = -1;
                   ogmap = 1; dlgpxy = 0; sigpxy = 1; srvnames = 0;
-                  exppxy = 0; authzpxy = 0; vomsat = 1; moninfo = 0;}
+                  exppxy = 0; authzpxy = 0;
+                  vomsat = 1; vomsfun = 0; vomsfunparms = 0; moninfo = 0; sslhash = 1; }
    virtual ~gsiOptions() { } // Cleanup inside XrdSecProtocolgsiInit
    void Print(XrdOucTrace *t); // Print summary of gsi option status
 };
@@ -318,6 +344,9 @@ private:
    static int              AuthzPxyWhere;
    static String           SrvAllowedNames;
    static int              VOMSAttrOpt; 
+   static XrdSysPlugin    *VOMSPlugin;
+   static XrdSecgsiVOMS_t  VOMSFun;
+   static int              VOMSCertFmt; 
    static int              MonInfoOpt; 
    //
    // Crypto related info
@@ -432,6 +461,8 @@ private:
                   LoadGMAPFun(const char *plugin, const char *parms);
    static XrdSecgsiAuthz_t           // Load alternative function to fill XrdSecEntity
                   LoadAuthzFun(const char *plugin, const char *parms, int &fmt);
+   static XrdSecgsiVOMS_t           // Load alternative function to extract VOMS
+                  LoadVOMSFun(const char *plugin, const char *parms, int &fmt);
    static void    QueryGMAP(XrdCryptoX509Chain* chain, int now, String &name); //Lookup info for DN
    
    // Entity handling
@@ -439,5 +470,5 @@ private:
    void FreeEntity(XrdSecEntity *in);
 
    // VOMS parsing
-   void ExtractVOMS(XrdCryptoX509 *xp, XrdSecEntity &ent);
+   int ExtractVOMS(X509Chain *c, XrdSecEntity &ent);
 };

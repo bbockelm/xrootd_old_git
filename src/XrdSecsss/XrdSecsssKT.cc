@@ -6,11 +6,27 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
-  
-//       $Id$
-
-const char *XrdSecsssKTCVSID = "$Id$";
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -60,11 +76,11 @@ XrdSecsssKT::XrdSecsssKT(XrdOucErrInfo *eInfo, const char *kPath,
    static const char *eText = "Unable to start keytab refresh thread";
    const char *devRand = "/dev/urandom";
    struct stat sbuf;
-   pthread_t pid;
    int retc;
 
 // Do some common initialization
 //
+   ktRefID= 0;
    ktPath = (kPath ? strdup(kPath) : 0);
    ktList = 0; kthiID = 0; ktMode = oMode; ktRefT = (time_t)refrInt;
    if (eInfo) eInfo->setErrCode(0);
@@ -96,7 +112,8 @@ XrdSecsssKT::XrdSecsssKT(XrdOucErrInfo *eInfo, const char *kPath,
 //
    if ((ktList = getKeyTab(eInfo, sbuf.st_mtime, sbuf.st_mode))
    && (oMode != isAdmin) && (!eInfo || eInfo->getErrInfo() == 0))
-      {if ((retc = XrdSysThread::Run(&pid,XrdSecsssKTRefresh,(void *)this)))
+      {if ((retc = XrdSysThread::Run(&ktRefID,XrdSecsssKTRefresh, (void *)this,
+                                     XRDSYSTHREAD_HOLD)))
           {eMsg("sssKT", errno, eText); eInfo->setErrInfo(-1, eText);}
       }
 }
@@ -108,11 +125,23 @@ XrdSecsssKT::XrdSecsssKT(XrdOucErrInfo *eInfo, const char *kPath,
 XrdSecsssKT::~XrdSecsssKT()
 {
    ktEnt *ktP;
+   void  *Dummy;
 
+// Lock against others
+//
    myMutex.Lock();
+
+// Kill the refresh thread first
+//
+   if (ktRefID && !XrdSysThread::Kill(ktRefID))
+      XrdSysThread::Join(ktRefID, &Dummy);
+
+// Now we can safely clean up
+//
    if (ktPath) {free(ktPath); ktPath = 0;}
 
    while((ktP = ktList)) {ktList = ktList->Next; delete ktP;}
+
    myMutex.UnLock();
 }
   
@@ -299,7 +328,7 @@ void XrdSecsssKT::Refresh()
   
 int XrdSecsssKT::Rewrite(int Keep, int &numKeys, int &numTot, int &numExp)
 {
-   char tmpFN[1024], buff[2048], kbuff[4096], *Slash;
+   char tmpFN[2048], buff[2048], kbuff[4096], *Slash;
    int ktFD, numID = 0, n, retc = 0;
    ktEnt ktCurr, *ktP, *ktN;
    mode_t theMode = fileMode(ktPath);

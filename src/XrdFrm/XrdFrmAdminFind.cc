@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <stdio.h>
@@ -34,12 +54,18 @@ int XrdFrmAdmin::FindFail(XrdOucArgs &Spec)
    XrdOucNSWalk::NSEnt *nP, *fP;
    XrdOucNSWalk *nsP;
    char pDir[MAXPATHLEN], *dotP, *dirFN, *lDir = Opt.Args[1];
+   char *dirP = pDir + Config.xfrFdln;
+   int   dirL = sizeof(pDir) - Config.xfrFdln;
    int opts = XrdOucNSWalk::retFile | (Opt.Recurse ? XrdOucNSWalk::Recurse : 0);
    int ec, rc = 0, num = 0;
 
+// Check if fail files are being relocated
+//
+   if (Config.xfrFdir) strcpy(pDir, Config.xfrFdir);
+
 // Process each directory
 //
-   do {if (!Config.LocalPath(lDir, pDir, sizeof(pDir))) continue;
+   do {if (!Config.LocalPath(lDir, dirP, dirL)) continue;
        nsP = new XrdOucNSWalk(&Say, pDir, 0, opts);
        while((nP = nsP->Index(ec)) || ec)
             {while((fP = nP))

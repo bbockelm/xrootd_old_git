@@ -1,45 +1,56 @@
+/******************************************************************************/
+/*                                                                            */
+/*                   X r d C p M t h r Q u e u e . c c                        */
+/*                                                                            */
+/* Author: Fabrizio Furano (INFN Padova, 2004)                                */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/******************************************************************************/
+
 //////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// XrdCpMthrQueue                                                       //
-//                                                                      //
-// Author: Fabrizio Furano (INFN Padova, 2004)                          //
 //                                                                      //
 // A thread safe queue to be used for multithreaded producers-consumers //
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-//       $Id$
-
-const char *XrdCpMthrQueueCVSID = "$Id$";
-
 #include "XrdClient/XrdCpMthrQueue.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdClient/XrdClientDebug.hh"
 
-XrdCpMthrQueue::XrdCpMthrQueue(): fReadSem(0) {
+XrdCpMthrQueue::XrdCpMthrQueue(): fWrWait(0), fReadSem(0), fWriteSem(0) {
    // Constructor
 
    fMsgQue.Clear();
    fTotSize = 0;
 }
 
-XrdCpMthrQueue::~XrdCpMthrQueue() {
-   // Destructor
-
-
-}
-
 int XrdCpMthrQueue::PutBuffer(void *buf, long long offs, int len) {
    XrdCpMessage *m;
-   bool wantstowait = FALSE;
 
-   {
-      XrdSysMutexHelper mtx(fMutex);
-      
-      if (fTotSize > CPMTQ_BUFFSIZE) wantstowait = TRUE;
-   }
-   
-   if (wantstowait) fWriteCnd.Wait(60);
+   fMutex.Lock();
+   if (len && fTotSize > CPMTQ_BUFFSIZE)
+      {fWrWait++;
+       fMutex.UnLock();
+       fWriteSem.Wait();
+      }
 
    m = new XrdCpMessage;
    m->offs = offs;
@@ -47,13 +58,11 @@ int XrdCpMthrQueue::PutBuffer(void *buf, long long offs, int len) {
    m->len = len;
 
    // Put message in the list
-   {
-      XrdSysMutexHelper mtx(fMutex);
-    
+   //
       fMsgQue.Push_back(m);
       fTotSize += len;
-   }
     
+   fMutex.UnLock();
    fReadSem.Post(); 
 
    return 0;
@@ -65,15 +74,16 @@ int XrdCpMthrQueue::GetBuffer(void **buf, long long &offs, int &len) {
    res = 0;
  
    // If there is no data for one hour, then give up with an error
-   if (!fReadSem.Wait(3600)) {
-	 XrdSysMutexHelper mtx(fMutex);
-
-      	 if (fMsgQue.GetSize() > 0) {
-
-	    // If there are messages to dequeue, we pick the oldest one
-	    res = fMsgQue.Pop_front();
-	    if (res) fTotSize -= res->len;
-	 }
+   if (!fReadSem.Wait(3600))
+      {fMutex.Lock();
+      // If there are messages to dequeue, we pick the oldest one
+       if (fMsgQue.GetSize() > 0)
+          {res = fMsgQue.Pop_front();
+           if (res) {fTotSize -= res->len;
+                     if (fWrWait) {fWrWait--; fWriteSem.Post();}
+                    }
+          }
+       fMutex.UnLock();
       }
 
 
@@ -82,7 +92,6 @@ int XrdCpMthrQueue::GetBuffer(void **buf, long long &offs, int &len) {
       len = res->len;
       offs = res->offs;
       delete res;
-      fWriteCnd.Signal();
    }
 
    return (res != 0);
@@ -94,7 +103,7 @@ void XrdCpMthrQueue::Clear() {
    int len;
    long long offs;
 
-   while (GetBuffer(&buf, offs, len)) {
+   while (fMsgQue.GetSize() && GetBuffer(&buf, offs, len)) {
       free(buf);
    }
 

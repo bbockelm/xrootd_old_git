@@ -4,6 +4,26 @@
 /*                                                                            */
 /* (c) 2005 G. Ganis / CERN                                                   */
 /*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/*                                                                            */
 /******************************************************************************/
 
 #include <unistd.h>
@@ -18,6 +38,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <dirent.h>
+
+#include "XrdVersion.hh"
 
 #include "XrdSys/XrdSysDNS.hh"
 #include "XrdSys/XrdSysHeaders.hh"
@@ -132,9 +154,9 @@ String XrdSecProtocolgsi::DefError = "invalid credentials ";
 int    XrdSecProtocolgsi::PxyReqOpts = 0;
 int    XrdSecProtocolgsi::AuthzPxyWhat = -1;
 int    XrdSecProtocolgsi::AuthzPxyWhere = -1;
-XrdSysPlugin   *XrdSecProtocolgsi::GMAPPlugin = 0;
+XrdSysPlugin *XrdSecProtocolgsi::GMAPPlugin = 0;
 XrdSecgsiGMAP_t XrdSecProtocolgsi::GMAPFun = 0;
-XrdSysPlugin   *XrdSecProtocolgsi::AuthzPlugin = 0;
+XrdSysPlugin *XrdSecProtocolgsi::AuthzPlugin = 0;
 XrdSecgsiAuthz_t XrdSecProtocolgsi::AuthzFun = 0;
 XrdSecgsiAuthzKey_t XrdSecProtocolgsi::AuthzKey = 0;
 int    XrdSecProtocolgsi::AuthzCertFmt = -1;
@@ -142,6 +164,9 @@ int    XrdSecProtocolgsi::GMAPCacheTimeOut = -1;
 int    XrdSecProtocolgsi::AuthzCacheTimeOut = 43200;  // 12h, default
 String XrdSecProtocolgsi::SrvAllowedNames;
 int    XrdSecProtocolgsi::VOMSAttrOpt = 1;
+XrdSecgsiAuthz_t XrdSecProtocolgsi::VOMSFun = 0;
+XrdSysPlugin *XrdSecProtocolgsi::VOMSPlugin = 0;
+int    XrdSecProtocolgsi::VOMSCertFmt = -1;
 int    XrdSecProtocolgsi::MonInfoOpt = 0;
 //
 // Crypto related info
@@ -352,6 +377,10 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
    // ... also for auxilliary libs
    XrdSutSetTrace(trace);
    XrdCryptoSetTrace(trace);
+   
+   // SSL name hashing algorithm
+   if (opt.sslhash == 0)
+      XrdCryptosslSetUseHashOld(1);
 
    //
    // Operation mode
@@ -826,9 +855,31 @@ char *XrdSecProtocolgsi::Init(gsiOptions opt, XrdOucErrInfo *erp)
       // VOMS attributes switch
       // vomsat = 0  do not look for
       //          1  extract if any (fill 'vorg', 'role'; the full string in 'endorsements');
-      VOMSAttrOpt = opt.vomsat;
-      const char *cvomsat = (VOMSAttrOpt == 1) ? "'extract'" : "'ignore'";
-      DEBUG("VOMS attributes options: "<<cvomsat);
+      //          2  require (fill 'vorg', 'role'; the full string in 'endorsements');
+      VOMSAttrOpt = (opt.vomsat <= 2 && opt.vomsat >= 0) ? opt.vomsat : VOMSAttrOpt;
+
+      //
+      // Alternative VOMS extraction function
+      if (opt.vomsfun) {
+         if (!(VOMSFun = LoadVOMSFun((const char *) opt.vomsfun,
+                                     (const char *) opt.vomsfunparms, VOMSCertFmt))) {
+            ErrF(erp, kGSErrError, "VOMS plug-in could not be loaded", opt.vomsfun); 
+            PRINT(erp->getErrText());
+            return Parms;
+         } else {
+            // We at least check VOMS attributes if we have a function ...
+            if (VOMSAttrOpt < 1) VOMSAttrOpt = 1;
+            // Notify certificate format
+            if (VOMSCertFmt >= 0 && VOMSCertFmt <= 1) {
+               const char *ccfmt[] = { "raw", "PEM base64" };
+               DEBUG("vomsfun: proxy certificate format: "<<ccfmt[VOMSCertFmt]);
+            } else {
+               DEBUG("vomsfun: proxy certificate format: unknown (code: "<<VOMSCertFmt<<")");
+            }
+         }
+      }
+      const char *cvomsat[3] = { "ignore", "extract", "require" };
+      DEBUG("VOMS attributes options: "<<cvomsat[VOMSAttrOpt]);
 
       //
       // Default moninfo option
@@ -969,7 +1020,11 @@ void XrdSecProtocolgsi::Delete()
    SafeFree(Entity.role);
    SafeFree(Entity.grps);
    SafeFree(Entity.endorsements);
-   SafeFree(Entity.creds);
+   if (Entity.creds && Entity.credslen > 0) {
+      SafeFree(Entity.creds);
+   } else {
+      Entity.creds = 0;
+   }
    Entity.credslen = 0;
    SafeFree(Entity.moninfo);
    // Cleanup the handshake variables, if still there
@@ -1748,7 +1803,34 @@ int XrdSecProtocolgsi::Authenticate(XrdSecCredentials *cred,
          
       // Extract the VOMS attrbutes, if required
       if (VOMSAttrOpt > 0) {
-         ExtractVOMS(hs->Chain->End(), Entity);
+         if (VOMSFun) {
+            // Fill the information needed by the external function
+            if (VOMSCertFmt == 1) {
+               // PEM base64
+               bpxy = XrdCryptosslX509ExportChain(hs->Chain, true);
+               bpxy->ToString(spxy);
+               Entity.creds = strdup(spxy.c_str());
+               Entity.credslen = spxy.length();
+            } else {
+               // Raw (opaque) format, to be used with XrdCrypto
+               Entity.creds = (char *) hs->Chain;
+               Entity.credslen = 0;
+            }
+            if ((*VOMSFun)(Entity) != 0 && VOMSAttrOpt == 2) {
+               // Error
+               kS_rc = kgST_error;
+               PRINT("ERROR: the VOMS extraction plug-in reported a failure for this handshake");
+               break;
+            }
+         } else {
+            // Lite version (no validations whatsover
+            if (ExtractVOMS(hs->Chain, Entity) != 0 && VOMSAttrOpt == 2) {
+               // Error
+               kS_rc = kgST_error;
+               PRINT("ERROR: VOMS attributes required but not found (default lite-extraction technology)");
+               break;
+            }
+         }
          DEBUG("VOMS: Entity.vorg:         "<< (Entity.vorg ? Entity.vorg : "<none>"));
          DEBUG("VOMS: Entity.grps:         "<< (Entity.grps ? Entity.grps : "<none>"));
          DEBUG("VOMS: Entity.role:         "<< (Entity.role ? Entity.role : "<none>"));
@@ -1761,15 +1843,22 @@ int XrdSecProtocolgsi::Authenticate(XrdSecCredentials *cred,
       if (AuthzFun && AuthzKey) {
          // Fill the information needed by the external function
          if (AuthzCertFmt == 1) {
-            // PEM base64
-            bpxy = XrdCryptosslX509ExportChain(hs->Chain, true);
-            bpxy->ToString(spxy);
-            Entity.creds = strdup(spxy.c_str());
-            Entity.credslen = spxy.length();
+            // May have been already done
+            if (!Entity.creds || Entity.credslen == 0) {
+               // PEM base64
+               bpxy = XrdCryptosslX509ExportChain(hs->Chain, true);
+               bpxy->ToString(spxy);
+               Entity.creds = strdup(spxy.c_str());
+               Entity.credslen = spxy.length();
+            }
          } else {
-            // Raw (opaque) format, to be used with XrdCrypto
-            Entity.creds = (char *) hs->Chain;
-            Entity.credslen = 0;
+            // May have been already done
+            if (!Entity.creds || Entity.credslen > 0) {
+               free(Entity.creds);
+               // Raw (opaque) format, to be used with XrdCrypto
+               Entity.creds = (char *) hs->Chain;
+               Entity.credslen = 0;
+            }
          }
          // Get the key
          char *key = 0;
@@ -2010,23 +2099,33 @@ void XrdSecProtocolgsi::FreeEntity(XrdSecEntity *in)
 /*                         E x t r a c t V O M S                              */
 /******************************************************************************/
 
-void XrdSecProtocolgsi::ExtractVOMS(XrdCryptoX509 *xp, XrdSecEntity &ent)
+int XrdSecProtocolgsi::ExtractVOMS(X509Chain *c, XrdSecEntity &ent)
 {
-   // Get the VOMS atrributes in 'xp' and fill the relevant fields in 'ent'
+   // Get the VOMS attributes from proxy file(s) in chain 'c' (either the proxy
+   // or the limited proxy) and fill the relevant fields in 'ent'
    EPNAME("ExtractVOMS");
 
-   if (!xp) return;
+   if (!c) return -1;
 
+   XrdCryptoX509 *xp = c->End();
+   if (!xp) return -1;
+   
    // Extract the information
    XrdOucString vatts;
    int rc = 0;
    if ((rc = XrdSslgsiX509GetVOMSAttr(xp, vatts)) != 0) {
-      if (rc > 0) {
-         DEBUG("No VOMS attributes in proxy certificate");
-      } else {
-         PRINT("ERROR: problem extracting VOMS attributes");
+      if (strstr(xp->Subject(), "CN=limited proxy")) {
+         xp = c->SearchBySubject(xp->Issuer());
+         rc = XrdSslgsiX509GetVOMSAttr(xp, vatts);
       }
-      return;
+      if (rc != 0) {
+         if (rc > 0) {
+            DEBUG("No VOMS attributes in proxy chain");
+         } else {
+            PRINT("ERROR: problem extracting VOMS attributes");
+         }
+         return -1;
+      }      
    }
 
    int from = 0;
@@ -2073,7 +2172,7 @@ void XrdSecProtocolgsi::ExtractVOMS(XrdCryptoX509 *xp, XrdSecEntity &ent)
    if (!ent.vorg) PRINT("WARNING: no VO found! (VOMS attributes: '"<<vatts<<"')");
 
    // Done
-   return;
+   return (!ent.vorg ? -1 : 0);
 }
 
 /******************************************************************************/
@@ -2146,7 +2245,15 @@ void gsiOptions::Print(XrdOucTrace *t)
       }
       POPTS(t, " Client proxy availability in XrdSecEntity.endorsement: "<< authzpxy);
       POPTS(t, " VOMS option: "<< vomsat);
+      if (vomsfun) {
+         POPTS(t, " VOMS extraction function: " << vomsfun);
+         if (vomsfunparms) POPTS(t, " VOMS extraction function parms: " << vomsfunparms);
+      } else {
+         if (vomsfunparms) POPTS(t, " VOMS extraction function parms: ignored (no VOMS extraction function defined)");
+      }
       POPTS(t, " MonInfo option: "<< moninfo);
+      if (sslhash == 0)
+         POPTS(t, " Using old SSL name hashing algorithm");
    }
    // Crypto options
    POPTS(t, " Crypto modules: "<< (clist ? clist : XrdSecProtocolgsi::DefCrypto));
@@ -2226,6 +2333,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       //                                     explicitely denied by these, or it is
       //                                     not in the form "*/<hostname>", the
       //                                     handshake fails.
+      //             "XrdSecGSIUSEHASHOLD"   Use old name hashing algorithm
 
       //
       opts.mode = mode;
@@ -2319,6 +2427,11 @@ char *XrdSecProtocolgsiInit(const char mode,
       if (cenv)
          opts.srvnames = strdup(cenv);
 
+      // SSL name hashing algorithm
+      cenv = getenv("XrdSecGSIUSEHASHOLD");
+      if (cenv)
+         opts.sslhash = 0;
+
       //
       // Setup the object with the chosen options
       rc = XrdSecProtocolgsi::Init(opts,erp);
@@ -2381,6 +2494,9 @@ char *XrdSecProtocolgsiInit(const char mode,
       //              [-dlgpxy:<proxy_req_option>]
       //              [-exppxy:<filetemplate>]
       //              [-authzpxy]
+      //              [-vomsat:<voms_option>]
+      //              [-vomsfun:<voms_function>]
+      //              [-vomsfunparms:<voms_function_init_parameters>]
       //
       int debug = -1;
       String clist = "";
@@ -2396,6 +2512,8 @@ char *XrdSecProtocolgsiInit(const char mode,
       String gmapfunparms = "";
       String authzfun = "";
       String authzfunparms = "";
+      String vomsfun = "";
+      String vomsfunparms = "";
       String exppxy = "";
       int ca = 1;
       int crl = 1;
@@ -2407,6 +2525,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       int authzpxy = 0;
       int vomsat = 1;
       int moninfo = 0;
+      int sslhash = 1;
       char *op = 0;
       while (inParms.GetLine()) { 
          while ((op = inParms.GetToken())) {
@@ -2460,10 +2579,16 @@ char *XrdSecProtocolgsiInit(const char mode,
                authzpxy = 11;
             } else if (!strncmp(op, "-vomsat:",8)) {
                vomsat = atoi(op+8);
+            } else if (!strncmp(op, "-vomsfun:",9)) {
+               vomsfun = (const char *)(op+9);
+            } else if (!strncmp(op, "-vomsfunparms:",14)) {
+               vomsfunparms = (const char *)(op+14);
             } else if (!strcmp(op, "-moninfo")) {
                moninfo = 1;
             } else if (!strncmp(op, "-moninfo:",9)) {
                moninfo = atoi(op+9);
+            } else if (!strncmp(op, "-sslhashold",11)) {
+               sslhash = 0;
             } else {
                PRINT("ignoring unknown switch: "<<op);
             }
@@ -2484,6 +2609,7 @@ char *XrdSecProtocolgsiInit(const char mode,
       opts.authzpxy = authzpxy;
       opts.vomsat = vomsat;
       opts.moninfo = moninfo;
+      opts.sslhash = sslhash;
       if (clist.length() > 0)
          opts.clist = (char *)clist.c_str();
       if (certdir.length() > 0)
@@ -2512,6 +2638,10 @@ char *XrdSecProtocolgsiInit(const char mode,
          opts.authzfunparms = (char *)authzfunparms.c_str();
       if (exppxy.length() > 0)
          opts.exppxy = (char *)exppxy.c_str();
+      if (vomsfun.length() > 0)
+         opts.vomsfun = (char *)vomsfun.c_str();
+      if (vomsfunparms.length() > 0)
+         opts.vomsfunparms = (char *)vomsfunparms.c_str();
 
       // Notify init options, if required
       opts.Print(gsiTrace);
@@ -2532,6 +2662,8 @@ char *XrdSecProtocolgsiInit(const char mode,
 /******************************************************************************/
 /*              X r d S e c P r o t o c o l p w d O b j e c t                 */
 /******************************************************************************/
+
+XrdVERSIONINFO(XrdSecProtocolgsiObject,secgsi);
 
 extern "C"
 {
@@ -4043,7 +4175,8 @@ bool XrdSecProtocolgsi::VerifyCA(int opt, X509Chain *cca, XrdCryptoFactory *CF)
          if (!notdone) {
             // Verify the chain
             X509Chain::EX509ChainErr e;
-            verified = cca->Verify(e);
+            if (!(verified = cca->Verify(e)))
+               PRINT("CA certificate not self-signed: verification failed ("<<xc->SubjectHash()<<")");
          } else {
             PRINT("CA certificate not self-signed: cannot verify integrity ("<<xc->SubjectHash()<<")");
          }
@@ -4054,13 +4187,22 @@ bool XrdSecProtocolgsi::VerifyCA(int opt, X509Chain *cca, XrdCryptoFactory *CF)
          verified = 1;
          // Notify if some sort of check was required
          if (opt == 1) {
-            DEBUG("Warning: CA certificate not self-signed:"
-                  " integrity not checked, assuming OK ("<<xc->SubjectHash()<<")");
+            DEBUG("Warning: CA certificate not self-signed and"
+                  " integrity not checked: assuming OK ("<<xc->SubjectHash()<<")");
          }
       }
-   } else if (CACheck > 0) {
-      // Check self-signature
-      verified = cca->CheckCA();
+   } else {
+      if (CACheck > 0) {
+         // Check self-signature
+         if (!(verified = cca->CheckCA()))
+            PRINT("CA certificate self-signed: integrity check failed ("<<xc->SubjectHash()<<")");
+      } else {
+         // Set OK in any case
+         verified = 1;
+         // Notify if some sort of check was required
+         DEBUG("Warning: CA certificate self-signed but"
+               " integrity not checked: assuming OK ("<<xc->SubjectHash()<<")");
+      }
    }
 
    // Set the status in the chain
@@ -4844,7 +4986,7 @@ XrdSecgsiAuthz_t XrdSecProtocolgsi::LoadAuthzFun(const char *plugin,
                                                  const char *parms, int &certfmt)
 {  
    // Load the authorization function from the specified plug-in.
-   // The plug-in must conatin three functions, to be all declared as 'extern C'.
+   // The plug-in must contain three functions, to be all declared as 'extern C'.
    //
    // 1. The main function:
    //
@@ -4950,6 +5092,101 @@ XrdSecgsiAuthz_t XrdSecProtocolgsi::LoadAuthzFun(const char *plugin,
   
    // Notify
    PRINT("using 'XrdSecgsiAuthzFun()' from "<<plugin);
+   
+   // Done
+   return ep;
+}
+
+//_____________________________________________________________________________
+XrdSecgsiVOMS_t XrdSecProtocolgsi::LoadVOMSFun(const char *plugin,
+                                               const char *parms, int &certfmt)
+{  
+   // Load the authorization function from the specified plug-in.
+   // The plug-in must contain two functions, to be all declared as 'extern C'.
+   //
+   // 1. The main function:
+   //
+   //              int XrdSecgsiVOMSFun(XrdSecEntity &entity)
+   //
+   //    here entity is the XrdSecEntity object associated with the handshake on the
+   //    server side. On input entity contains:
+   //      - in 'name' the username, DN, DN hash according to the GMAP option
+   //      - in 'host' the client hostname
+   //      - in 'creds'the proxy chain
+   //    The proxy chain can be either in 'raw' or 'PEM base64' format (see below).
+   //    This function returns 
+   //                          0      on success
+   //                         <0      on error (implies authentication failure)
+   //
+   // 2. The initialization function:
+   //
+   //              int XrdSecgsiVOMSInit(const char *)
+   //
+   //    here 'parameters' is the string of parameters, separated by ' '.
+   //    This function return <0 in case of failure or the format type of the proxy chain
+   //    expected by the main function:
+   //                          0       raw, to be used with XrdCrypto tools
+   //                          1       PEM (base64 standard string)
+   //
+   EPNAME("LoadVOMSFun");
+
+   certfmt = -1;
+   // Make sure the input config file is defined
+   if (!plugin || strlen(plugin) <= 0) {
+      PRINT("plug-in file undefined");
+      return (XrdSecgsiAuthz_t)0;
+   }
+   
+   // Create the plug-in instance
+   if (!(VOMSPlugin = new XrdSysPlugin(&XrdSecProtocolgsi::eDest, plugin))) {
+      PRINT("could not create plugin instance for "<<plugin);
+      return (XrdSecgsiAuthz_t)0;
+   }
+
+   // Use global symbols?
+   bool useglobals = 0;
+   XrdOucString params, ps(parms), p;
+   int from = 0;
+   while ((from = ps.tokenize(p, from, '|')) != -1) {
+      if (p == "useglobals") {
+         useglobals = 1;
+      } else {
+         if (params.length() > 0) params += " ";
+         params += p;
+      }
+   }
+   DEBUG("params: '"<< params<<"'; useglobals: "<<useglobals);
+
+   // Get the function
+   XrdSecgsiVOMS_t ep = 0;
+   if (useglobals)
+      ep = (XrdSecgsiVOMS_t) VOMSPlugin->getPlugin("XrdSecgsiVOMSFun", 0, true);
+   else
+      ep = (XrdSecgsiVOMS_t) VOMSPlugin->getPlugin("XrdSecgsiVOMSFun");
+   if (!ep) {
+      PRINT("could not find 'XrdSecgsiVOMSFun()' in "<<plugin);
+      return (XrdSecgsiAuthz_t)0;
+   }
+   
+   // Get the init function
+   XrdSecgsiVOMSInit_t epinit = 0;
+   if (useglobals)
+      epinit = (XrdSecgsiVOMSInit_t) VOMSPlugin->getPlugin("XrdSecgsiVOMSInit", 0, true);
+   else
+      epinit = (XrdSecgsiVOMSInit_t) VOMSPlugin->getPlugin("XrdSecgsiVOMSInit");
+   if (!epinit) {
+      PRINT("could not find 'XrdSecgsiVOMSInit()' in "<<plugin);
+      return (XrdSecgsiVOMS_t)0;
+   }
+   
+   // Init it
+   if ((certfmt = (*epinit)(params.c_str())) == -1) {
+      PRINT("problems executing 'XrdSecgsiVOMSInit()' (rc: "<<certfmt<<")");
+      return (XrdSecgsiVOMS_t)0;
+   }
+  
+   // Notify
+   PRINT("using 'XrdSecgsiVOMSFun()' from "<<plugin);
    
    // Done
    return ep;
@@ -5140,7 +5377,7 @@ XrdSutPFEntry *XrdSecProtocolgsi::GetSrvCertEnt(XrdCryptoFactory *cf,
          if (rcgetca == -1) {
             PRINT("do not have certificate for the issuing CA '"<<xsrv->IssuerHash()<<"'");
          } else {
-            PRINT("failed to initialized CRL for issuing CA '"<<xsrv->IssuerHash()<<"'");
+            PRINT("failed to load certificate for the issuing CA '"<<xsrv->IssuerHash()<<"'");
          }
          SafeDelete(xsrv);
          SafeDelete(xbck);

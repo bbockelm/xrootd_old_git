@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*               DE-AC02-76-SFO0515 with the Deprtment of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <unistd.h>
@@ -18,6 +38,8 @@
 #include <stdio.h>
 #include <netinet/in.h>
 #include <sys/param.h>
+
+#include "XrdVersion.hh"
 
 #include "XrdCks/XrdCks.hh"
 #include "XrdCks/XrdCksConfig.hh"
@@ -54,6 +76,8 @@ extern XrdOucTrace OfsTrace;
 class  XrdOss;
 extern XrdOss     *XrdOfsOss;
 
+XrdVERSIONINFO(XrdOfs,XrdOfs);
+
 /******************************************************************************/
 /*                               d e f i n e s                                */
 /******************************************************************************/
@@ -72,6 +96,12 @@ extern XrdOss     *XrdOfsOss;
 #define Max(x,y) (x > y ? x : y)
 
 /******************************************************************************/
+/*                            g e t V e r s i o n                             */
+/******************************************************************************/
+  
+const char *XrdOfs::getVersion() {return XrdVERSION;}
+
+/******************************************************************************/
 /*                             C o n f i g u r e                              */
 /******************************************************************************/
   
@@ -85,7 +115,8 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
 
   Output:   0 upon success or !0 otherwise.
 */
-   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *);
+   extern XrdOss *XrdOssGetSS(XrdSysLogger *, const char *, const char *,
+                                              const char *, XrdVersionInfo &);
    char *var;
    const char *tmp;
    int  i, j, cfgFD, retc, NoGo = 0;
@@ -103,7 +134,9 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
 
 // Allocate a checksum configurator at this point
 //
-   CksConfig = new XrdCksConfig(ConfigFN, &Eroute);
+   CksConfig = new XrdCksConfig(ConfigFN, &Eroute, retc,
+                                &XrdVERSIONINFOVAR(XrdOfs));
+   if (!retc) NoGo = 1;
 
 // If there is no config file, return with the defaults sets.
 //
@@ -186,22 +219,32 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
    if ((Options & ThirdPC) && !(Options & isProxy) && !(Options & isManager))
       if (!XrdOfsTPC::Start()) NoGo = 1;
 
+// We need to do pre-initialization for event recording as the oss needs some
+// environmental information from that initialization to initialize the frm,
+// should it need to be used. We will do full evr initialization after the oss
+// and the finder are initialized. A bit messy in the current plug-in world.
+//
+   if (!(Options & isManager) && !evrObject.Init(&Eroute)) NoGo = 1;
+
 // Now configure the storage system
 //
-   if (!(XrdOfsOss = XrdOssGetSS(Eroute.logger(), ConfigFN, OssLib))) NoGo = 1;
+   if (!(XrdOfsOss = XrdOssGetSS(Eroute.logger(), ConfigFN, OssLib, OssParms,
+                                 XrdVERSIONINFOVAR(XrdOfs)))) NoGo = 1;
       else XrdOfsTPC::Init(XrdOfsOss);
 
 // Initialize redirection.  We type te herald here to minimize confusion
 //
    if (Options & haveRole)
       {Eroute.Say("++++++ Configuring ", myRole, " role. . .");
-       NoGo |= ConfigRedir(Eroute, EnvInfo);
+       if (ConfigRedir(Eroute, EnvInfo))
+          {Eroute.Emsg("Config", "Unable to create cms client object.");
+           NoGo = 1;
+          }
       }
 
 // Initialize th Evr object if we are an actual server
 //
-   if (!(Options & isManager) 
-   && !evrObject.Init(&Eroute, Balancer)) NoGo = 1;
+   if (!(Options & isManager) && !evrObject.Init(Balancer)) NoGo = 1;
 
 // Turn off forwarding if we are not a pure remote redirector or a peer
 //
@@ -217,7 +260,7 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
 
 // Configure checksums if we are not a manager
 //
-   if (!(Options & isManager))
+   if (!(Options & isManager) && !NoGo)
       NoGo |= (Cks = CksConfig->Configure(0, CksRdsz)) == 0;
    delete CksConfig;
    CksConfig = 0;
@@ -455,23 +498,24 @@ int XrdOfs::ConfigRedir(XrdSysError &Eroute, XrdOucEnv *EnvInfo)
    int TRGopts = (Options & isProxy  ? XrdCms::IsProxy  : 0)
                | (isRedir ? XrdCms::IsRedir : 0) | XrdCms::IsTarget;
 
-// If a cmslib was specified then create a plugin object (we will throw this
-// away without deletion because the library must stay open but we never want
-// to reference it again).
+// If a cmslib was specified then create a plugin object
 //
    if (CmsLib)
-      {if (!(myLib = new XrdSysPlugin(&Eroute, CmsLib))) return 1;
+      {XrdSysPlugin myLib(&Eroute,CmsLib,"cmslib",&XrdVERSIONINFOVAR(XrdOfs));
        CmsPI = (XrdCmsClient *(*)(XrdSysLogger *, int, int, XrdOss *))
-                                  (myLib->getPlugin("XrdCmsGetClient"));
+                                  (myLib.getPlugin("XrdCmsGetClient"));
        if (!CmsPI) return 1;
+       myLib.Persist();
       }
 
 // For manager roles, we simply do a standard config
 //
    if (isRedir) 
-      {if (CmsLib) Finder = CmsPI(myLogger, RMTopts, myPort, XrdOfsOss);
-          else     Finder = (XrdCmsClient *)new XrdCmsFinderRMT(myLogger,
+      {     if (CmsLib) Finder = CmsPI(myLogger, RMTopts, myPort, XrdOfsOss);
+       else if (XrdCmsFinderRMT::VCheck(XrdVERSIONINFOVAR(XrdOfs)))
+                        Finder = (XrdCmsClient *)new XrdCmsFinderRMT(myLogger,
                                                                 RMTopts,myPort);
+       else return 1;
        if (!Finder) return 1;
        if (!Finder->Configure(ConfigFN, CmsParms, EnvInfo))
           {delete Finder; Finder = 0; return 1;}
@@ -490,9 +534,11 @@ int XrdOfs::ConfigRedir(XrdSysError &Eroute, XrdOucEnv *EnvInfo)
           {Eroute.Emsg("Config", "Unable to determine server's port number.");
            return 1;
           }
-       if (CmsLib) Balancer = CmsPI(myLogger, TRGopts, myPort, XrdOfsOss);
-          else     Balancer = (XrdCmsClient *)new XrdCmsFinderTRG(myLogger,
+            if (CmsLib) Balancer = CmsPI(myLogger, TRGopts, myPort, XrdOfsOss);
+       else if (XrdCmsFinderTRG::VCheck(XrdVERSIONINFOVAR(XrdOfs)))
+                        Balancer = (XrdCmsClient *)new XrdCmsFinderTRG(myLogger,
                                                                 TRGopts,myPort);
+       else return 1;
        if (!Balancer) return 1;
        if (!Balancer->Configure(ConfigFN, CmsParms, EnvInfo))
           {delete Balancer; Balancer = 0; return 1;}
@@ -1014,25 +1060,27 @@ int XrdOfs::xnot(XrdOucStream &Config, XrdSysError &Eroute)
 int XrdOfs::xolib(XrdOucStream &Config, XrdSysError &Eroute)
 {
     char *val, parms[2048];
-    int pl;
 
 // Get the path and parms
 //
    if (!(val = Config.GetWord()) || !val[0])
       {Eroute.Emsg("Config", "osslib not specified"); return 1;}
 
-// Combine the path and parameters
-//
-   strcpy(parms, val);
-   pl = strlen(val);
-   *(parms+pl) = ' ';
-   if (!Config.GetRest(parms+pl+1, sizeof(parms)-pl-1))
-      {Eroute.Emsg("Config", "osslib parameters too long"); return 1;}
-
 // Record the path
 //
    if (OssLib) free(OssLib);
-   OssLib = strdup(parms);
+   OssLib = strdup(val);
+
+// Get any parameters
+//
+   *parms = 0;
+   if (!Config.GetRest(parms, sizeof(parms)))
+      {Eroute.Emsg("Config", "osslib parameters too long"); return 1;}
+
+// Record the parameters
+//
+   if (OssParms) free(OssParms);
+   OssLib = (*parms ? strdup(parms) : 0);
    return 0;
 }
 
@@ -1447,27 +1495,27 @@ int XrdOfs::xtrace(XrdOucStream &Config, XrdSysError &Eroute)
 
 int XrdOfs::setupAuth(XrdSysError &Eroute)
 {
-   extern XrdAccAuthorize *XrdAccDefaultAuthorizeObject(XrdSysLogger *lp,
-                                                        const char   *cfn,
-                                                        const char   *parm);
+   extern XrdAccAuthorize *XrdAccDefaultAuthorizeObject
+                          (XrdSysLogger   *lp,    const char   *cfn,
+                           const char     *parm,  XrdVersionInfo &vInfo);
+
    XrdSysPlugin    *myLib;
    XrdAccAuthorize *(*ep)(XrdSysLogger *, const char *, const char *);
 
 // Authorization comes from the library or we use the default
 //
    if (!AuthLib) return 0 == (Authorization = XrdAccDefaultAuthorizeObject
-                              (Eroute.logger(),ConfigFN,AuthParm));
+                             (Eroute.logger(), ConfigFN, AuthParm,
+                              XrdVERSIONINFOVAR(XrdOfs)));
 
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// Create a plugin object
 //
-   if (!(myLib = new XrdSysPlugin(&Eroute, AuthLib))) return 1;
-
-// Now get the entry point of the object creator
-//
+  {XrdSysPlugin myLib(&Eroute, AuthLib, "authlib", &XrdVERSIONINFOVAR(XrdOfs));
    ep = (XrdAccAuthorize *(*)(XrdSysLogger *, const char *, const char *))
-                             (myLib->getPlugin("XrdAccAuthorizeObject"));
+                             (myLib.getPlugin("XrdAccAuthorizeObject"));
    if (!ep) return 1;
+   myLib.Persist();
+  }
 
 // Get the Object now
 //

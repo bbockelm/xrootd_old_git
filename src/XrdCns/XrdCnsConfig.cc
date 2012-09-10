@@ -6,12 +6,34 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
 #include <sys/types.h>
+
+#include "XrdVersion.hh"
 
 #include "Xrd/XrdTrace.hh"
 
@@ -23,7 +45,7 @@
 
 #include "XrdOuc/XrdOuca2x.hh"
 #include "XrdOuc/XrdOucArgs.hh"
-#include "XrdOuc/XrdOucName2Name.hh"
+#include "XrdOuc/XrdOucN2NLoader.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucTList.hh"
 #include "XrdOuc/XrdOucTokenizer.hh"
@@ -175,7 +197,6 @@ int XrdCnsConfig::Configure(int argc, char **argv, char *argt)
           {MLog.Emsg("Config","'-R' is valid only for a stand-alone command.");
            return 0;
           }
-       if (bPath) {free(bPath); bPath = 0;}
        if (lroot)
           {sprintf(buff, "XRDLCLROOT=%s", lroot); putenv(strdup(buff));}
        if (n2n)
@@ -192,6 +213,7 @@ int XrdCnsConfig::Configure(int argc, char **argv, char *argt)
                   return 0;
                  }
        Space = new XrdCnsXref("public",0);
+       if (bPath) {free(bPath); bPath = 0;}
       } else {
        *buff = '\0'; tP = buff;
        if (lroot) {*tP++ = ' '; *tP++ = '-'; *tP++ = 'L';}
@@ -225,7 +247,9 @@ int XrdCnsConfig::Configure(int argc, char **argv, char *argt)
                 } else strcpy(buff, dP);
             }
        if (!*buff)
-          {MLog.Emsg("Config","Backup path cannot be determined."); NoGo=1;}
+          {MLog.Emsg("Config","Backup path cannot be determined.");
+           free(bHost); bHost = 0; NoGo=1;
+          }
           else {if (buff[strlen(buff)-1] == '/') strcat(buff, "cns/");
                    else strcat(buff, "/cns/");
                 bPath = strdup(buff);
@@ -440,6 +464,7 @@ int XrdCnsConfig::Configure()
 
 int XrdCnsConfig::ConfigN2N()
 {
+   static XrdVERSIONINFODEF(myVer, XrdCns, XrdVNUMBER, XrdVERSION);
    XrdSysPlugin    *myLib;
    XrdOucName2Name *(*ep)(XrdOucgetName2NameArgs);
    char *N2NLib, *N2NParms = 0;
@@ -448,32 +473,23 @@ int XrdCnsConfig::ConfigN2N()
 //
    if ((LCLRoot = getenv("XRDLCLROOT")) && !*LCLRoot) LCLRoot = 0;
 
-// If we have no library path then use the default method (this will always
-// succeed).
+// Get the library path and parameters
 //
-   if (!(N2NLib = getenv("XRDN2NLIB")) || !*N2NLib)
-      {if (LCLRoot) N2N = XrdOucgetName2Name(&MLog, 0, "", LCLRoot, 0);
-       return 0;
-      }
+   if ((N2NLib = getenv("XRDN2NLIB")) && !*N2NLib) N2NParms = N2NLib = 0;
+      else N2NParms = getenv("XRDN2NPARMS");
 
-// Get the N2N parameters
+// Skip getting plugin if there is no reason for it
 //
-   if ((N2NParms = getenv("XRDN2NPARMS"))) N2NParms = strdup(N2NParms);
+   if (!N2NLib && !LCLRoot) return 0;
 
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// Get the plugin
 //
-   if (!(myLib = new XrdSysPlugin(&MLog, N2NLib))) return 1;
+  {XrdOucN2NLoader n2nLoader(&MLog, cPath, N2NParms, LCLRoot, 0);
+   N2N = n2nLoader.Load(N2NLib, myVer);
+  }
 
-// Now get the entry point of the object creator
+// Cleanup and return result
 //
-   ep = (XrdOucName2Name *(*)(XrdOucgetName2NameArgs))(myLib->getPlugin("XrdOucgetName2Name"));
-   if (!ep) return 1;
-
-// Get the Object now
-//
-   N2N = ep(&MLog, cPath,(N2NParms ? N2NParms:""),LCLRoot,0);
-   if (N2NParms) free(N2NParms);
    return N2N == 0;
 }
 

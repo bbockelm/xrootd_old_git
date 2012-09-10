@@ -5,6 +5,26 @@
 /*                            All Rights Reserved                             */
 /* Author: Wei Yang (SLAC National Accelerator Laboratory, 2010)              */
 /*         Contract DE-AC02-76-SFO0515 with the Department of Energy          */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <stdio.h>
@@ -37,7 +57,7 @@ XrdOucHash<struct XrdFfsFsInfo> XrdFfsFsinfoHtab;
 int XrdFfsFsinfo_cache_search(int (*func)(const char*, const char*, struct statvfs*, uid_t), const char* rdrurl, const char* path, struct statvfs *stbuf, uid_t user_uid)
 {
     struct XrdFfsFsInfo *s; 
-    int wlock, rc = 0;
+    int wlock, rc = 0, dofree = 0;
     const char *p;
     char* sname;
 
@@ -55,13 +75,13 @@ int XrdFfsFsinfo_cache_search(int (*func)(const char*, const char*, struct statv
         stbuf->f_blocks = s->f_blocks;
         stbuf->f_bavail = s->f_bavail;
         stbuf->f_bfree = s->f_bfree;
-        rc = 0;
     }
     else
     {
         rc = (*func)(rdrurl, path, stbuf, user_uid);
         s = (struct XrdFfsFsInfo*) malloc(sizeof(struct XrdFfsFsInfo));
         s->t = 0;
+        dofree = 1;
     }
 
     pthread_mutex_unlock(&XrdFfsFsinfo_cache_mutex_rd);
@@ -81,6 +101,7 @@ int XrdFfsFsinfo_cache_search(int (*func)(const char*, const char*, struct statv
 
             if (s->f_blocks != 0)  // if s->f_blocks is zero, then this space token probably does not exist
                 XrdFfsFsinfoHtab.Rep(sname, s, 0, (XrdOucHash_Options)(Hash_default | Hash_keepdata));
+               else if (dofree) free(s);
             pthread_mutex_unlock(&XrdFfsFsinfo_cache_mutex_rd);
         }   
         pthread_mutex_unlock(&XrdFfsFsinfo_cache_mutex_wr);

@@ -1,8 +1,38 @@
+/******************************************************************************/
+/*                                                                            */
+/*                             X r d C p y . c c                              */
+/*                                                                            */
+/* (c) 2012 by the Board of Trustees of the Leland Stanford, Jr., University  */
+/*                            All Rights Reserved                             */
+/* Author: Fabrizio Furano (INFN Padova, 2004)                                */
+/*            Modified by Andrew Hanushevsky (2012) under contract            */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/* Author: Fabrizio Furano (INFN Padova, 2004)                                */
+/*            Modified by Andrew Hanushevsky (2012) under contract            */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/******************************************************************************/
+  
 //////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// xrdcp                                                                //
-//                                                                      //
-// Author: Fabrizio Furano (INFN Padova, 2004)                          //
 //                                                                      //
 // A cp-like command line tool for xrootd environments                  //
 //                                                                      //
@@ -693,6 +723,7 @@ char *genDestCgi(XrdClient *xrdsrc, const char *src)
    if (!(Path = index(Path, '/')))
       {EMSG("Unable to extract lfn from '" <<getFName(src) <<"'."); return 0;}
    strncpy(lfnBuff, Path+1, sizeof(lfnBuff));
+   lfnBuff[sizeof(lfnBuff)-1] = 0;
    if ((qP = index(lfnBuff, '?'))) *qP = 0;
 
 // Generate a key
@@ -893,6 +924,7 @@ int doCp_xrd2xrd(XrdClient **xrddest, const char *src, const char *dst) {
          nfo->clientidx = xrdxtrdfile->GimmeANewClientIdx();
          nfo->startfromblk = iii*xrdxtrdfile->GetNBlks() / xtremeclients.GetSize();
          nfo->maxoutstanding = xrdmin( 5, xrdxtrdfile->GetNBlks() / xtremeclients.GetSize() );
+         if (nfo->maxoutstanding < 1) nfo->maxoutstanding = 1;
 
          XrdSysThread::Run(&myTID, ReaderThread_xrd_xtreme, 
                            (void *)nfo, XRDSYSTHREAD_HOLD);

@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
   
 #include <errno.h>
@@ -14,6 +34,8 @@
 #include <unistd.h>
 #include <sys/param.h>
 #include <sys/types.h>
+
+#include "XrdVersion.hh"
   
 #include "XrdCks/XrdCks.hh"
 #include "XrdCks/XrdCksData.hh"
@@ -22,6 +44,25 @@
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysPlugin.hh"
+
+/******************************************************************************/
+/*                           C o n s t r u c t o r                            */
+/******************************************************************************/
+  
+XrdCksConfig::XrdCksConfig(const char *cFN, XrdSysError *Eroute, int &aOK,
+                           XrdVersionInfo *vInfo)
+                          : eDest(Eroute), cfgFN(cFN), CksLib(0), CksParm(0),
+                            CksList(0), CksLast(0), myVersion(vInfo)
+{
+   static XrdVERSIONINFODEF(myVer, XrdCks, XrdVNUMBER, XrdVERSION);
+
+// Verify caller's version against ours
+//
+   myVersion = &myVer;
+   if (vInfo->vNum <= 0 || vInfo->vNum == myVer.vNum
+   ||  XrdSysPlugin::VerCmp(*vInfo, myVer)) aOK = 1;
+      else aOK = 0;
+}
 
 /******************************************************************************/
 /*                             C o n f i g u r e                              */
@@ -62,12 +103,12 @@ XrdCks *XrdCksConfig::getCks(int rdsz)
 
 // Authorization comes from the library or we use the default
 //
-   if (!CksLib) return (XrdCks *)new XrdCksManager(eDest, rdsz);
+   if (!CksLib) return (XrdCks *)new XrdCksManager(eDest, rdsz, myVersion);
 
 // Create a plugin object (we will throw this away without deletion because
 // the library must stay open but we never want to reference it again).
 //
-   if (!(myLib = new XrdSysPlugin(eDest, CksLib))) return 0;
+   if (!(myLib = new XrdSysPlugin(eDest,CksLib,"ckslib",myVersion))) return 0;
 
 // Now get the entry point of the object creator
 //

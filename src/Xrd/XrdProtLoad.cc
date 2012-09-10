@@ -3,9 +3,28 @@
 /*                        X r d P r o t L o a d . c c                         */
 /*                                                                            */
 /* (c) 2006 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*              DE-AC03-76-SFO0515 with the Department of Energy              */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include "XrdSys/XrdSysError.hh"
@@ -14,6 +33,8 @@
 #include "Xrd/XrdLink.hh"
 #include "Xrd/XrdPoll.hh"
 #include "Xrd/XrdProtLoad.hh"
+
+#include "XrdVersion.hh"
 
 #define XRD_TRACE XrdTrace->
 #include "Xrd/XrdTrace.hh"
@@ -240,6 +261,7 @@ int XrdProtLoad::getProtocolPort(const char *lname,
                                        char *parms,
                          XrdProtocol_Config *pi)
 {
+   static XrdVERSIONINFODEF(myVer, xrd, XrdVNUMBER, XrdVERSION);
    const char *xname = (lname ? lname : "");
    int (*ep)(const char *, char *, XrdProtocol_Config *);
    void *epvoid;
@@ -253,14 +275,15 @@ int XrdProtLoad::getProtocolPort(const char *lname,
           {XrdLog->Emsg("Protocol", "Too many protocols have been defined.");
            return -1;
           }
-       if (!(libhndl[i] = new XrdSysPlugin(XrdLog, lname))) return -1;
+       if (!(libhndl[i] = new XrdSysPlugin(XrdLog, lname, "protocol", &myVer)))
+          return -1;
        liblist[i] = strdup(xname);
        libcnt++;
       }
 
 // Get the port number to be used
 //
-   if (!(epvoid = libhndl[i]->getPlugin("XrdgetProtocolPort", 1))) 
+   if (!(epvoid = libhndl[i]->getPlugin("XrdgetProtocolPort", 2)))
       return (pi->Port < 0 ? 0 : pi->Port);
    ep = (int (*)(const char*,char*,XrdProtocol_Config*))epvoid;
    return ep(pname, parms, pi);

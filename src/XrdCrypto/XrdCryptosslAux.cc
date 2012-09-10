@@ -1,11 +1,28 @@
-// $Id$
-
-const char *XrdCryptosslAuxCVSID = "$Id$";
 /******************************************************************************/
 /*                                                                            */
 /*                  X r d C r y p t o S s l A u x . h h                       */
 /*                                                                            */
 /* (c) 2005 G. Ganis, CERN                                                    */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /*                                                                            */
 /******************************************************************************/
 
@@ -45,6 +62,21 @@ int XrdCryptosslX509VerifyCB(int ok, X509_STORE_CTX *ctx)
 
    // We are done
    return ok;
+}
+
+//  Hashing algorithm control
+static bool gX509UseHashOld = 0;
+//____________________________________________________________________________
+void XrdCryptosslSetUseHashOld(bool on)
+{
+   // Set gX509UseHashOld
+   gX509UseHashOld = on;
+}
+//____________________________________________________________________________
+bool XrdCryptosslUseHashOld()
+{
+   // Get gX509UseHashOld
+   return gX509UseHashOld;
 }
 
 //____________________________________________________________________________
@@ -349,7 +381,7 @@ int XrdCryptosslX509ParseFile(const char *fname,
    // Parse content of file 'fname' and add X509 certificates to
    // chain (which must be initialized by the caller).
    // If a private key matching the public key of one of the certificates
-   // is found in teh file, the certificate key is completed.
+   // is found in the file, the certificate key is completed.
    EPNAME("X509ParseFile");
    int nci = 0;
 
@@ -382,7 +414,7 @@ int XrdCryptosslX509ParseFile(const char *fname,
       if (c) {
          chain->PushBack(c);
          nci++;
-         DEBUG("certificate added to the chain - ord: "<<chain->Size());
+         DEBUG("certificate for '"<<c->Subject()<<"'added to the chain - ord: "<<chain->Size());
       } else {
          DEBUG("could not create certificate: memory exhausted?");
          fclose(fcer);
@@ -431,7 +463,7 @@ int XrdCryptosslX509ParseFile(const char *fname,
 #else
                      if (PEM_read_bio_PrivateKey(bkey,&evpp,0,0)) {
 #endif
-                        DEBUG("RSA key completed ");
+                        DEBUG("RSA key completed for '"<<cert->Subject()<<"'");
                         // Test consistency
                         int rc = RSA_check_key(evpp->pkey.rsa);
                         if (rc != 0) {
@@ -585,6 +617,7 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1)
    // since Epoch (Jan 1, 1970) 
    // Return -1 if something went wrong
    int etime = -1;
+   EPNAME("ASN1toUTC");
 
    //
    // Make sure there is something to convert
@@ -616,20 +649,12 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1)
    // month should in [0, 11]
    (ltm.tm_mon)--;
    //
-   // calculate UTC
+   // Calculate UTC
    etime = mktime(&ltm);
-   //
-   // If GMT we need a correction because mktime use local time zone
-   time_t now = time(0);
-   struct tm ltn, gtn;
-   if (!localtime_r(&now, &ltn)) return etime;
-   if (!gmtime_r(&now, &gtn)) return etime;
-   //
-   // Calculate correction
-   int tzcor = (int) difftime(mktime(&ltn), mktime(&gtn));
-   //
-   // Apply correction
-   etime += tzcor;
+   // Include DST shift; here, because we have the information
+   if (ltm.tm_isdst > 0) etime += XrdCryptoDSTShift;
+   // Notify, if requested
+   DEBUG(" UTC: "<<etime<<"  isdst: "<<ltm.tm_isdst);
    //
    // We are done
    return etime;

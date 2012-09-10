@@ -5,9 +5,28 @@
 /*                             X r d O f s . h h                              */
 /*                                                                            */
 /* (c) 2004 by the Board of Trustees of the Leland Stanford, Jr., University  */
-/*       All Rights Reserved. See XrdInfo.cc for complete License Terms       */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*              DE-AC03-76-SFO0515 with the Department of Energy              */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <string.h>
@@ -31,6 +50,8 @@ class XrdSysError;
 class XrdSysLogger;
 class XrdOucStream;
 class XrdSfsAio;
+
+struct XrdVersionInfo;
 
 /******************************************************************************/
 /*                       X r d O f s D i r e c t o r y                        */
@@ -301,6 +322,7 @@ char *HostName;       //    ->Our hostname
 char *HostPref;       //    ->Our hostname with domain removed
 char *ConfigFN;       //    ->Configuration filename
 char *OssLib;         //    ->Oss Library
+char *OssParms;       //    ->Oss Library Parameters
 char *CmsLib;         //    ->Cms Library
 char *CmsParms;       //    ->Cms Library Parameters
 
@@ -347,6 +369,8 @@ int               poscAuto;       //  1 -> Automatic persist on close
 XrdCksConfig     *CksConfig;      // Checksum configurator
 XrdCks           *Cks;            // Checksum manager
 int               CksRdsz;        // Checksum read size
+
+XrdVersionInfo   *myVersion;      // Version number compiled against
 
 static XrdOfsHandle     *dummyHandle;
 XrdSysMutex              ocMutex; // Global mutex for open/close

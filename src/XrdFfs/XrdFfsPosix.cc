@@ -5,6 +5,26 @@
 /*                            All Rights Reserved                             */
 /* Author: Wei Yang (SLAC National Accelerator Laboratory, 2009)              */
 /*         Contract DE-AC02-76-SFO0515 with the Department of Energy          */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #define _FILE_OFFSET_BITS 64
@@ -447,9 +467,20 @@ int XrdFfsPosix_readdirall(const char *rdrurl, const char *path, char*** direnta
 //        dir_i[i] = NULL;
 
     nurls = XrdFfsMisc_get_all_urls(rdrurl, newurls, XrdFfs_MAX_NUM_NODES);
-    if (nurls < 0) 
+/* 
+   If a directory doesn't exist on any data server, it is better to return -1 with errno = ENOENT
+   than to return 0 with errno = 0. But this is difficult because it depends on correct returning
+   from XrdPosixXrootd::Opendir(). This has never been a problem for xrootdfs itself because FUSE 
+   does stat() before readdir().
+
+   In the use case of XrdPssDir::Opendir(), it does expect this function to return -1/ENOENT. In
+   this use case the "rdrurl" contains the complete URL and "path" contains "" so "nurls" will be
+   zero if no data server has the directory. The following is a quick and dirty fix for this use 
+   case. The orignal code was:     if (nurls < 0) { errno = EACCES; return -1; }
+ */
+    if (nurls <= 0) 
     {
-        errno = EACCES;
+        errno = (nurls == 0? ENOENT : EACCES);
         return -1;
     }
 

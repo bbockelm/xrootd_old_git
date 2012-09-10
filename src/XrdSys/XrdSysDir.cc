@@ -3,11 +3,28 @@
 /*                     X r d S y s D i r . h h                                */
 /*                                                                            */
 /* (c) 2006 G. Ganis (CERN)                                                   */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /*     All Rights Reserved. See XrdInfo.cc for complete License Terms         */
 /******************************************************************************/
-// $Id$
-
-const char *XrdSysDirCVSID = "$Id$";
 
 //////////////////////////////////////////////////////////////////////////
 //                                                                      //
@@ -37,7 +54,7 @@ XrdSysDir::XrdSysDir(const char *path)
    // Use isValid() to check the result of this operation, and lastError()
    // to get the last error code, if any.
 
-   lasterr = 0;
+   lasterr = 0; dhandle = 0;
    if (path && strlen(path) > 0) {
 #if !defined(WINDOWS)
       dhandle = (void *) opendir(path);

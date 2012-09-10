@@ -6,7 +6,27 @@
 /* (C) 2003 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*                DE-AC03-76-SFO0515 with the Deprtment of Energy             */
+/*                DE-AC02-76-SFO0515 with the Deprtment of Energy             */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <unistd.h>
@@ -19,6 +39,8 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include "XrdVersion.hh"
 
 #include "XrdFrc/XrdFrcProxy.hh"
 #include "XrdOss/XrdOssApi.hh"
@@ -34,13 +56,12 @@
 #include "XrdSys/XrdSysError.hh"
 #include "XrdOuc/XrdOucExport.hh"
 #include "XrdOuc/XrdOucMsubs.hh"
-#include "XrdOuc/XrdOucName2Name.hh"
+#include "XrdOuc/XrdOucN2NLoader.hh"
 #include "XrdOuc/XrdOucProg.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdOuc/XrdOucUtils.hh"
 #include "XrdSys/XrdSysFAttr.hh"
 #include "XrdSys/XrdSysHeaders.hh"
-#include "XrdSys/XrdSysPlugin.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdSys/XrdSysPlatform.hh"
 
@@ -132,6 +153,8 @@ void *XrdOssCacheScan(void *carg) {return XrdOssCache::Scan(*((int *)carg));}
 
 XrdOssSys::XrdOssSys()
 {
+   static XrdVERSIONINFODEF(myVer, XrdOss, XrdVNUMBER, XrdVERSION);
+   myVersion     = &myVer;
    xfrtcount     = 0;
    pndbytes      = 0;
    stgbytes      = 0;
@@ -182,6 +205,10 @@ XrdOssSys::XrdOssSys()
    runOld        = 0;
    XrdOssRunMode = &runOld;
    numCG = numDP = 0;
+   xfrFdir       = 0;
+   xfrFdln       = 0;
+   RSSProg       = 0;
+   StageProg     = 0;
 }
   
 /******************************************************************************/
@@ -441,45 +468,22 @@ void XrdOssSys::ConfigMio(XrdSysError &Eroute)
 
 int XrdOssSys::ConfigN2N(XrdSysError &Eroute)
 {
-   XrdSysPlugin    *myLib;
-   XrdOucName2Name *(*ep)(XrdOucgetName2NameArgs);
+   XrdOucN2NLoader n2nLoader(&Eroute,ConfigFN,N2N_Parms,LocalRoot,RemoteRoot);
 
-// If we have no library path then use the default method (this will always
-// succeed).
+// Get the plugin
 //
-   if (!N2N_Lib)
-      {the_N2N = XrdOucgetName2Name(&Eroute, ConfigFN, "", LocalRoot, RemoteRoot);
-       if (LocalRoot) {lcl_N2N = the_N2N;
-                       XrdOucEnv::Export("XRDLCLROOT", LocalRoot);
-                      }
-       if (RemoteRoot){rmt_N2N = the_N2N;
-                       XrdOucEnv::Export("XRDRMTROOT",RemoteRoot);
-                      }
-       return 0;
-      }
+   if (!(the_N2N = n2nLoader.Load(N2N_Lib, *myVersion))) return 1;
 
-// Export name lib information
+// Optimize the local case
 //
-   XrdOucEnv::Export("XRDN2NLIB", N2N_Lib);
-   if (N2N_Parms) XrdOucEnv::Export("XRDN2NPARMS", N2N_Parms);
+   if (N2N_Lib)   rmt_N2N = lcl_N2N = the_N2N;
+      else {if (LocalRoot)  lcl_N2N = the_N2N;
+            if (RemoteRoot) rmt_N2N = the_N2N;
+           }
 
-// Create a pluin object (we will throw this away without deletion because
-// the library must stay open but we never want to reference it again).
+// All done
 //
-   if (!(myLib = new XrdSysPlugin(&Eroute, N2N_Lib))) return 1;
-
-// Now get the entry point of the object creator
-//
-   ep = (XrdOucName2Name *(*)(XrdOucgetName2NameArgs))(myLib->getPlugin("XrdOucgetName2Name"));
-   if (!ep) return 1;
-
-
-// Get the Object now
-//
-   lcl_N2N = rmt_N2N = the_N2N = ep(&Eroute, ConfigFN, 
-                                   (N2N_Parms ? N2N_Parms : ""),
-                                   LocalRoot, RemoteRoot);
-   return lcl_N2N == 0;
+   return 0;
 }
   
 /******************************************************************************/
@@ -1559,9 +1563,13 @@ int XrdOssSys::xusage(XrdOucStream &Config, XrdSysError &Eroute)
 /* Function: xxfr
 
    Purpose:  To parse the directive: xfr [deny <sec>] [keep <sec>] [up]
+                                         [fdir <path>]
                                          [<threads> [<speed> [<ovhd> [<hold>]]]]
 
+             deny      number of seconds to deny staging requests in the
+                       presence of a '.fail' file.
              keep      number of seconds to keep queued requests
+             fdir      the base directory where '.fail' files are to be written
              <threads> number of threads for staging (* uses default).
 
 The following are deprecated and allowed for backward compatability:
@@ -1575,36 +1583,55 @@ The following are deprecated and allowed for backward compatability:
 
 int XrdOssSys::xxfr(XrdOucStream &Config, XrdSysError &Eroute)
 {
+    static const int maxfdln = 256;
+    const char *wantParm = 0;
     char *val;
     int       thrds = 1;
     long long speed = 9*1024*1024;
     int       ovhd  = 30;
     int       htime = 3*60*60;
     int       ktime;
-    int       haveparm = 0;
     int       upon = 0;
 
-    while((val = Config.GetWord()))        // deny | keep
+    while((val = Config.GetWord()))        // deny |fdir | keep | up
          {     if (!strcmp("deny", val))
-                  {if ((val = Config.GetWord()))     // keep time
-                      {if (XrdOuca2x::a2tm(Eroute,"xfr deny",val,&htime,0))
+                  {wantParm = "xfr deny";
+                   if ((val = Config.GetWord()))     // keep time
+                      {if (XrdOuca2x::a2tm(Eroute,wantParm,val,&htime,0))
                           return 1;
-                       haveparm=1;
+                       wantParm=0;
+                      }
+                  }
+          else if (!strcmp("fdir", val))
+                  {wantParm = "xfr fdir";
+                   if ((val = Config.GetWord()))     // fdir path
+                      {if (xfrFdir) free(xfrFdir);
+                       xfrFdln = strlen(val);
+                       if (xfrFdln > maxfdln)
+                          {Eroute.Emsg("Config","xfr fdir path too long");
+                           xfrFdir = 0; xfrFdln = 0; return 1;
+                          }
+                       xfrFdir = strdup(val); 
+                       wantParm = 0;
                       }
                   }
           else if (!strcmp("keep", val))
-                  {if ((val = Config.GetWord()))     // keep time
-                      {if (XrdOuca2x::a2tm(Eroute,"xfr keep",val,&ktime,0))
+                  {wantParm = "xfr keep";
+                   if ((val = Config.GetWord()))     // keep time
+                      {if (XrdOuca2x::a2tm(Eroute,wantParm,val,&ktime,0))
                           return 1;
-                       xfrkeep=ktime; haveparm=1;
+                       xfrkeep=ktime; wantParm=0;
                       }
                   }
-          else if (!strcmp("up", val)) {upon = 1; haveparm = 1;}
+          else if (!strcmp("up", val)) {upon = 1; wantParm = 0;}
           else break;
          };
 
-    if (!val) {if (haveparm) return 0;
-                  else {Eroute.Emsg("Config", "xfr parameter not specified");
+    xfrhold    = htime;
+    if (upon) OptFlags |= XrdOss_USRPRTY;
+
+    if (!val) {if (!wantParm) return 0;
+                  else {Eroute.Emsg("Config", wantParm, "value not specified");
                         return 1;
                        }
               }
@@ -1626,11 +1653,10 @@ int XrdOssSys::xxfr(XrdOucStream &Config, XrdSysError &Eroute)
              }
          }
 
+      xfrhold    = htime;
       xfrthreads = thrds;
       xfrspeed   = speed;
       xfrovhd    = ovhd;
-      xfrhold    = htime;
-      if (upon) OptFlags |= XrdOss_USRPRTY;
       return 0;
 }
 

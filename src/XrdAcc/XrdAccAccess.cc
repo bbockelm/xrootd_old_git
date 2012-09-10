@@ -5,22 +5,41 @@
 /* (c) 2003 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*              DE-AC03-76-SFO0515 with the Department of Energy              */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
-
-//         $Id$
-
-const char *XrdAccAccessCVSID = "$Id$";
 
 #include <stdio.h>
 #include <time.h>
 #include <sys/param.h>
+
+#include "XrdVersion.hh"
 
 #include "XrdAcc/XrdAccAccess.hh"
 #include "XrdAcc/XrdAccCapability.hh"
 #include "XrdAcc/XrdAccConfig.hh"
 #include "XrdAcc/XrdAccGroups.hh"
 #include "XrdOuc/XrdOucTokenizer.hh"
+#include "XrdSys/XrdSysPlugin.hh"
   
 /******************************************************************************/
 /*                   E x t e r n a l   R e f e r e n c e s                    */
@@ -38,10 +57,18 @@ extern XrdAccConfig XrdAccConfiguration;
 /*       Autorization Object Creation via XrdAccDefaultAuthorizeObject        */
 /******************************************************************************/
   
-XrdAccAuthorize *XrdAccDefaultAuthorizeObject(XrdSysLogger *lp, const char *cfn,
-                                              const char *parm)
+XrdAccAuthorize *XrdAccDefaultAuthorizeObject(XrdSysLogger *lp,
+                                              const char *cfn,
+                                              const char *parm,
+                                              XrdVersionInfo &urVer)
 {
+   static XrdVERSIONINFODEF(myVer, XrdAcc, XrdVNUMBER, XrdVERSION);
    static XrdSysError Eroute(lp, "acc_");
+
+// Verify version compatability
+//
+   if (urVer.vNum != myVer.vNum && !XrdSysPlugin::VerCmp(urVer,myVer))
+      return 0;
 
 // Configure the authorization system
 //

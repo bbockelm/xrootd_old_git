@@ -1,5 +1,34 @@
 #ifndef __XPROTOCOL_H
 #define __XPROTOCOL_H
+/******************************************************************************/
+/*                                                                            */
+/*                          X P r o t o c o l . h h                           */
+/*                                                                            */
+/* (c) 2012 by the Board of Trustees of the Leland Stanford, Jr., University  */
+/*                            All Rights Reserved                             */
+/*   Produced by Andrew Hanushevsky for Stanford University under contract    */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
+/******************************************************************************/
 
 //#ifndef __GNUC__
 //#define __attribute__(x)
@@ -377,10 +406,11 @@ struct ClientProtocolRequest {
 struct ClientPrepareRequest {
    kXR_char  streamid[2];
    kXR_unt16 requestid;
-   kXR_char options;
-   kXR_char prty;
-   kXR_char reserved[14];
-   kXR_int32  dlen;
+   kXR_char  options;
+   kXR_char  prty;
+   kXR_unt16 port;          // 2.9.9 or higher
+   kXR_char  reserved[12];
+   kXR_int32 dlen;
 };
 struct ClientPutfileRequest {
    kXR_char  streamid[2];
@@ -410,8 +440,9 @@ struct ClientReadRequest {
 struct ClientReadVRequest {
    kXR_char  streamid[2];
    kXR_unt16 requestid;
-   kXR_char  reserved[16];
-   kXR_int32  dlen;
+   kXR_char  reserved[15];
+   kXR_char  pathid;
+   kXR_int32 dlen;
 };
 struct ClientRmRequest {
    kXR_char  streamid[2];
@@ -635,6 +666,7 @@ struct ServerResponse
     ServerResponseBody_Protocol protocol;
     ServerResponseBody_Login    login;
     ServerResponseBody_Buffer   buffer;
+    ServerResponseBody_Bind     bind;
   } body;
 };
 

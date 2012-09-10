@@ -8,6 +8,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include "XrdOuc/XrdOucTList.hh"
@@ -15,6 +35,8 @@
 class XrdCks;
 class XrdOucStream;
 class XrdSysError;
+
+struct XrdVersionInfo;
   
 class XrdCksConfig
 {
@@ -28,9 +50,8 @@ int     Manager(const char *Path, const char *Parms);
 
 int     ParseLib(XrdOucStream &Config);
 
-        XrdCksConfig(const char *cFN, XrdSysError *Eroute)
-                    : eDest(Eroute), cfgFN(cFN), CksLib(0), CksParm(0),
-                      CksList(0), CksLast(0) {}
+        XrdCksConfig(const char *cFN, XrdSysError *Eroute, int &aOK,
+                     XrdVersionInfo *vInfo);
        ~XrdCksConfig() {XrdOucTList *tP;
                         if (CksLib)  free(CksLib);
                         if (CksParm) free(CksParm);
@@ -40,11 +61,12 @@ int     ParseLib(XrdOucStream &Config);
 private:
 XrdCks      *getCks(int rdsz);
 
-XrdSysError *eDest;
-const char  *cfgFN;
-char        *CksLib;
-char        *CksParm;
-XrdOucTList *CksList;
-XrdOucTList *CksLast;
+XrdSysError    *eDest;
+const char     *cfgFN;
+char           *CksLib;
+char           *CksParm;
+XrdOucTList    *CksList;
+XrdOucTList    *CksLast;
+XrdVersionInfo *myVersion;
 };
 #endif

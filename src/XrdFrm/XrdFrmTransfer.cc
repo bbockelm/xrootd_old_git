@@ -6,6 +6,26 @@
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
 #include <string.h>
@@ -35,6 +55,7 @@
 #include "XrdOuc/XrdOucMsubs.hh"
 #include "XrdOuc/XrdOucProg.hh"
 #include "XrdOuc/XrdOucSxeq.hh"
+#include "XrdOuc/XrdOucUtils.hh"
 #include "XrdOuc/XrdOucXAttr.hh"
 #include "XrdSys/XrdSysError.hh"
 #include "XrdSys/XrdSysPlatform.hh"
@@ -57,8 +78,9 @@ char        *theINS;
 char         theMDP[8];
 
             XrdFrmTranArg(XrdOucEnv *Env)
-                         : theEnv(Env), theSrc(0), theDst(0), theINS(0)
-                           {theMDP[0] = '0'; theMDP[1] = 0;}
+                         : theEnv(Env), theCmd(0), theVec(0), theSrc(0),
+                           theDst(0), theINS(0) 
+                            {theMDP[0] = '0'; theMDP[1] = 0;}
            ~XrdFrmTranArg() {}
 };
 
@@ -311,9 +333,23 @@ const char *XrdFrmTransfer::ffCheck()
 {
    const char *eTxt;
 
-   strcpy(&xfrP->PFN[xfrP->pfnEnd], ".fail");
-   eTxt = checkFF(xfrP->PFN);
-   xfrP->PFN[xfrP->pfnEnd] = '\0';
+// Generate proper fail file path and check if it exists
+//
+   if (Config.xfrFdir)
+      {char ffPath[MAXPATHLEN+8];
+       if (Config.xfrFdln+xfrP->pfnEnd+5 >= sizeof(ffPath)) return 0;
+       strcpy(ffPath, Config.xfrFdir);
+       strcpy(ffPath+Config.xfrFdln, xfrP->PFN);
+       strcpy(ffPath+Config.xfrFdln+xfrP->pfnEnd, ".fail");
+       eTxt = checkFF(ffPath);
+      } else {
+       strcpy(&xfrP->PFN[xfrP->pfnEnd], ".fail");
+       eTxt = checkFF(xfrP->PFN);
+       xfrP->PFN[xfrP->pfnEnd] = '\0';
+      }
+
+// Determine result
+//
    if (eTxt) xfrP->RetCode = 1;
    return eTxt;
 }
@@ -322,25 +358,39 @@ const char *XrdFrmTransfer::ffCheck()
 /* Private:                       f f M a k e                                 */
 /******************************************************************************/
   
-void XrdFrmTransfer::ffMake(int nofile)
-{
+void XrdFrmTransfer::ffMake(int nofile){
    static const mode_t fMode = S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
+   static const mode_t dMode = S_IXUSR|S_IWGRP|S_IXGRP|S_IXOTH | fMode;
+   char ffPath[MAXPATHLEN+8], *ffP;
    int myFD;
+
+// Generate fail file path
+//
+   if (Config.xfrFdir)
+      {if (Config.xfrFdln+xfrP->pfnEnd+5 >= sizeof(ffPath)) return;
+       strcpy(ffPath, Config.xfrFdir);
+       strcpy(ffPath+Config.xfrFdln, xfrP->PFN);
+       strcpy(ffPath+Config.xfrFdln+xfrP->pfnEnd, ".fail");
+       XrdOucUtils::makePath(ffPath, dMode);
+       ffP = ffPath;
+      } else {
+       strcpy(&xfrP->PFN[xfrP->pfnEnd], ".fail");
+       ffP = xfrP->PFN;
+      }
 
 // Create a fail file and if failure is due to "file not found" set the mtime
 // to 2 so that the oss layer picks up the same error in the future.
 //
-   strcpy(&xfrP->PFN[xfrP->pfnEnd], ".fail");
-   myFD = open(xfrP->PFN, O_CREAT, fMode);
+   myFD = open(ffP, O_CREAT, fMode);
    if (myFD >= 0)
       {close(myFD);
        if (nofile)
           {struct utimbuf tbuff;
            tbuff.actime = time(0); tbuff.modtime = 2;
-           utime(xfrP->PFN, &tbuff);
+           utime(ffP, &tbuff);
           }
       }
-   xfrP->PFN[xfrP->pfnEnd] = '\0';
+   if (!Config.xfrFdir) xfrP->PFN[xfrP->pfnEnd] = '\0';
 }
   
 /******************************************************************************/

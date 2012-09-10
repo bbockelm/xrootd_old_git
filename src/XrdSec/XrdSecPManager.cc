@@ -5,37 +5,42 @@
 /* (c) 2003 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
-/*              DE-AC03-76-SFO0515 with the Department of Energy              */
+/*              DE-AC02-76-SFO0515 with the Department of Energy              */
+/*                                                                            */
+/* This file is part of the XRootD software suite.                            */
+/*                                                                            */
+/* XRootD is free software: you can redistribute it and/or modify it under    */
+/* the terms of the GNU Lesser General Public License as published by the     */
+/* Free Software Foundation, either version 3 of the License, or (at your     */
+/* option) any later version.                                                 */
+/*                                                                            */
+/* XRootD is distributed in the hope that it will be useful, but WITHOUT      */
+/* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      */
+/* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public       */
+/* License for more details.                                                  */
+/*                                                                            */
+/* You should have received a copy of the GNU Lesser General Public License   */
+/* along with XRootD in a file called COPYING.LESSER (LGPL license) and file  */
+/* COPYING (GPL license).  If not, see <http://www.gnu.org/licenses/>.        */
+/*                                                                            */
+/* The copyright holder's institutional names and contributor's names may not */
+/* be used to endorse or promote products derived from this software without  */
+/* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
-//       $Id$
-
-const char *XrdSecPManagerCVSID = "$Id$";
-
-// Bypass Solaris ELF madness
-//
-#ifdef __solaris__
-#include <sys/isa_defs.h>
-#if defined(_ILP32) && (_FILE_OFFSET_BITS != 32)
-#undef  _FILE_OFFSET_BITS
-#define _FILE_OFFSET_BITS 32
-#undef  _LARGEFILE_SOURCE
-#endif
-#endif
-
-#include <dlfcn.h>
-#if !defined(__macos__) && !defined(__CYGWIN__)
-#include <link.h>
-#endif
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
 
+#include "XrdVersion.hh"
+
 #include "XrdSys/XrdSysHeaders.hh"
+#include "XrdSys/XrdSysPlugin.hh"
 #include "XrdSec/XrdSecInterface.hh"
 #include "XrdSec/XrdSecPManager.hh"
 #include "XrdSec/XrdSecProtocolhost.hh"
+#include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucErrInfo.hh"
 
 #include "XrdSys/XrdSysPlatform.hh"
@@ -67,6 +72,17 @@ XrdSecProtList  *Next;
                       }
                ~XrdSecProtList() {} // ProtList objects never get freed!
 };
+
+/******************************************************************************/
+/*                        V e r s i o n   N u m b e r                         */
+/******************************************************************************/
+
+// Note that these would properly belong in XrdSecClient.cc and XrdSecServer.cc
+// However, as this is the object common to both, we consolidate them here.
+  
+XrdVERSIONINFO(XrdSecGetProtocol,secprot);
+
+XrdVERSIONINFO(XrdSecgetService,secserv);
 
 /******************************************************************************/
 /*                X r d S e c P M a n a g e r   M e t h o d s                 */
@@ -222,17 +238,22 @@ XrdSecProtList *XrdSecPManager::ldPO(XrdOucErrInfo *eMsg,  // In
                                      const char    *spath) // In
 {
    extern XrdSecProtocol *XrdSecProtocolhostObject(PROTPARMS);
-   void *libhandle;
+   static XrdVERSIONINFODEF(clVer, SecClnt, XrdVNUMBER, XrdVERSION);
+   static XrdVERSIONINFODEF(srVer, SecSrvr, XrdVNUMBER, XrdVERSION);
+   XrdVersionInfo *myVer = (pmode == 'c' ? &clVer : &srVer);
+   XrdSysPlugin   *secLib;
    XrdSecProtocol *(*ep)(PROTPARMS);
    char           *(*ip)(INITPARMS);
-   const char *tlist[8];
-   char  poname[80], libfn[80], libpath[2048], *libloc, *newargs;
-   int i, k = 1;
+   char  poname[80], libfn[80], libpath[2048], *libloc, *newargs, *bP;
+   int i;
+
+// Set plugin debugging if needed (this only applies to client calls)
+//
+   if (DebugON && pmode == 'c' && !DebugON) XrdOucEnv::Export("XRDPIHUSH", "1");
 
 // The "host" protocol is builtin.
 //
    if (!strcmp(pid, "host")) return Add(eMsg,pid,XrdSecProtocolhostObject,0);
-   tlist[0] = "XrdSec: ";
 
 // Form library name
 //
@@ -249,7 +270,7 @@ XrdSecProtList *XrdSecPManager::ldPO(XrdOucErrInfo *eMsg,  // In
            }
    DEBUG("Loading " <<pid <<" protocol object from " <<libloc);
 
-// For clients, verify if the library exists (don't complain, if not)
+// For clients, verify if the library exists (don't complain, if not).
 //
    if (pmode == 'c')
       {struct stat buf;
@@ -257,48 +278,46 @@ XrdSecProtList *XrdSecPManager::ldPO(XrdOucErrInfo *eMsg,  // In
           {eMsg->setErrInfo(ENOENT, ""); return 0;}
       }
 
-// Open the security library
+// Get the plugin object. We preferentially use a message object if it exists
 //
-   if (!(libhandle = dlopen(libloc, RTLD_NOW)))
-      {tlist[k++] = dlerror();
-       tlist[k++] = " opening shared library ";
-       tlist[k++] = libloc;
-       eMsg->setErrInfo(-1, tlist, k);
-       return 0;
-      }
+   if (errP) secLib = new XrdSysPlugin(errP, libloc, "sec.protocol", myVer);
+       else {bP = eMsg->getMsgBuff(i);
+             secLib = new XrdSysPlugin(bP,i, libloc, "sec.protocol", myVer);
+            }
+   eMsg->setErrInfo(0, "");
 
 // Get the protocol object creator
 //
    sprintf(poname, "XrdSecProtocol%sObject", pid);
-   if (!(ep = (XrdSecProtocol *(*)(PROTPARMS))dlsym(libhandle, poname)))
-      {tlist[k++] = dlerror();
-       tlist[k++] = " finding ";
-       tlist[k++] = poname;
-       tlist[k++] = " in ";
-       tlist[k++] = libloc;
-       eMsg->setErrInfo(-1, tlist, k);
+   if (!(ep = (XrdSecProtocol *(*)(PROTPARMS))secLib->getPlugin(poname)))
+      {delete secLib;
        return 0;
       }
 
 // Get the protocol initializer
 //
    sprintf(poname, "XrdSecProtocol%sInit", pid);
-   if (!(ip = (char *(*)(INITPARMS))dlsym(libhandle, poname)))
-      {tlist[k++] = dlerror();
-       tlist[k++] = " finding ";
-       tlist[k++] = poname;
-       tlist[k++] = " in ";
-       tlist[k++] = libloc;
-       eMsg->setErrInfo(-1, tlist, k);
+   if (!(ip = (char *(*)(INITPARMS))secLib->getPlugin(poname)))
+      {delete secLib;
        return 0;
       }
 
 // Invoke the one-time initialization
 //
-   if (!(newargs = ip(pmode, (pmode == 'c' ? 0 : parg), eMsg))) return 0;
+   if (!(newargs = ip(pmode, (pmode == 'c' ? 0 : parg), eMsg)))
+      {if (!*(eMsg->getErrText()))
+          {const char *eTxt[] = {"XrdSec: ", pid, 
+                       " initialization failed in sec.protocol ", libloc};
+           eMsg->setErrInfo(-1, eTxt, sizeof(eTxt));
+          }
+       delete secLib;
+       return 0;
+      }
 
 // Add this protocol to our protocol stack
 //
+   secLib->Persist();
+   delete secLib;
    return Add(eMsg, pid, ep, newargs);
 }
  

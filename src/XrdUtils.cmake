@@ -27,12 +27,17 @@ add_library(
   XrdSys/XrdSysPthread.cc       XrdSys/XrdSysPthread.hh
                                 XrdSys/XrdSysSemWait.hh
   XrdSys/XrdSysTimer.cc         XrdSys/XrdSysTimer.hh
+  XrdSys/XrdSysUtils.cc         XrdSys/XrdSysUtils.hh
   XrdSys/XrdSysXSLock.cc        XrdSys/XrdSysXSLock.hh
   XrdSys/XrdSysFAttr.cc         XrdSys/XrdSysFAttr.hh
                                 XrdSys/XrdSysFAttrBsd.icc
                                 XrdSys/XrdSysFAttrLnx.icc
                                 XrdSys/XrdSysFAttrMac.icc
                                 XrdSys/XrdSysFAttrSun.icc
+  XrdSys/XrdSysIOEvents.cc      XrdSys/XrdSysIOEvents.hh
+                                XrdSys/XrdSysIOEventsPollE.icc
+                                XrdSys/XrdSysIOEventsPollPoll.icc
+                                XrdSys/XrdSysIOEventsPollPort.icc
                                 XrdSys/XrdSysAtomics.hh
                                 XrdSys/XrdSysHeaders.hh
   XrdSys/XrdSysError.cc         XrdSys/XrdSysError.hh
@@ -57,6 +62,7 @@ add_library(
   XrdOuc/XrdOucHashVal.cc
   XrdOuc/XrdOucMsubs.cc         XrdOuc/XrdOucMsubs.hh
   XrdOuc/XrdOucName2Name.cc     XrdOuc/XrdOucName2Name.hh
+  XrdOuc/XrdOucN2NLoader.cc     XrdOuc/XrdOucN2NLoader.hh
   XrdOuc/XrdOucNList.cc         XrdOuc/XrdOucNList.hh
   XrdOuc/XrdOucNSWalk.cc        XrdOuc/XrdOucNSWalk.hh
   XrdOuc/XrdOucProg.cc          XrdOuc/XrdOucProg.hh
