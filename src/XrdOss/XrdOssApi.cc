@@ -816,7 +816,7 @@ ssize_t XrdOssFile::ReadV(XrdSfsReadV *readV, size_t n)
    ssize_t remaining = n;
    ssize_t readCount = n;
    size_t idx = 0, totalBytes = 0, nbytes;
-   if (reamining <= FETCH_SIZE)
+   if (remaining <= FETCH_SIZE)
       {if (readV[0].size == 0) // Handle the degenerate case.
           {if (n == 1) return 0;
            return ReadV(readV+1, n-1);
