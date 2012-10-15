@@ -836,35 +836,6 @@ XrdSfsXferSize XrdOfsFile::read(XrdSfsFileOffset  offset,    // In
 //
    return nbytes;
 }
-
-/******************************************************************************/
-/*                                  r e a d v                                 */
-/******************************************************************************/
-
-XrdSfsXferSize XrdOfsFile::readv(XrdSfsReadV     *readV,     // In
-                             size_t           readCount) // In
-/*
-  Function: Perform all the reads specified in the readV vector.
-
-  Input:    readV     - A description of the reads to perform; includes the
-                        absolute offset, the size of the read, and the buffer
-                        to place the data into.
-            readCount - The size of the readV vector.
-
-  Output:   Returns the number of bytes read upon success and SFS_ERROR o/w.
-            If the number of bytes read is less than requested, it is considered
-            an error.
-*/
-{
-   EPNAME("readv");
-
-   XrdSfsXferSize nbytes = oh->Select().ReadV(readV, readCount);
-   if (nbytes < 0)
-       return XrdOfsFS->Emsg(epname, error, (int)nbytes, "readv", oh->Name());
-
-   return nbytes;
-
-}
   
 /******************************************************************************/
 /*                              r e a d   A I O                               */

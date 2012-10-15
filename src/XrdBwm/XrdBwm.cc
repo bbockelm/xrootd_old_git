@@ -464,39 +464,7 @@ XrdSfsXferSize XrdBwmFile::read(XrdSfsFileOffset  offset,    // In
 //
    return 0;
 }
-
-/******************************************************************************/
-/*                                  r e a d v                                 */
-/******************************************************************************/
-
-XrdSfsXferSize XrdBwmFile::readv(XrdSfsReadV     *readV,     // In
-                                       size_t           readCount) // In
-/*
-  Function: Perform all the reads specified in the readV vector.
-
-  Input:    readV     - A description of the reads to perform; includes the
-                        absolute offset, the size of the read, and the buffer
-                        to place the data into.
-            readCount - The size of the readV vector.
-
-  Output:   Returns the number of bytes read upon success and SFS_ERROR o/w.
-            If the number of bytes read is less than requested, it is considered
-            an error.
-
-  Notes: 1. This function calls XrdBwmFile::read, which always returns 0 bytes.
-            Hence, it will always return error.
-*/
-{
-   EPNAME("readv");
-
-   int i=0;
-   for (i=0; i<readCount; i++)
-     {read(readV[i].offset, readV[i].data, readV[i].size);
-     }
-
-   return SFS_ERROR;
-}
- 
+  
 /******************************************************************************/
 /*                              r e a d   A I O                               */
 /******************************************************************************/
