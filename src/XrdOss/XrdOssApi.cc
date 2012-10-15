@@ -743,7 +743,8 @@ ssize_t XrdOssFile::Read(off_t offset, size_t blen)
      if (fd < 0) return (ssize_t)-XRDOSS_E8004;
 
 #if defined(__linux__)
-     posix_fadvise(oh, offset, blen, POSIX_FADV_WILLNEED)
+     std::cerr << "AMT XrdOssFile::Read() -- should be calling posix_fadvise() ...\n";
+     // posix_fadvise(oh, offset, blen, POSIX_FADV_WILLNEED)
 #endif
 
      return 0;  // We haven't implemented this yet!
@@ -813,6 +814,7 @@ ssize_t XrdOssFile::ReadV(XrdSfsReadV *readV, size_t n)
 #define BLOCK_SIZE 4096
 #define FETCH_SIZE 128
    ssize_t remaining = n;
+   ssize_t readCount = n;
    size_t idx = 0, totalBytes = 0, nbytes;
    if (reamining <= FETCH_SIZE)
       {if (readV[0].size == 0) // Handle the degenerate case.
@@ -821,8 +823,8 @@ ssize_t XrdOssFile::ReadV(XrdSfsReadV *readV, size_t n)
           }
        off_t baseOffset = readV[0].offset/BLOCK_SIZE, nextOffset=0, curOffset;
        size_t hint_len = (readV[0].size-1)/BLOCK_SIZE+1;
-       off_t nextOffset = curOffset+hint_len;
-       for (i=1; i<readCount; i++)
+       nextOffset = curOffset+hint_len;
+       for (size_t i=1; i<readCount; i++)
           {curOffset = readV[i].offset/BLOCK_SIZE;
            if (readV[i].size == 0) continue;
            if (curOffset != nextOffset)
