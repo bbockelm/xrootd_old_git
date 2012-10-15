@@ -219,11 +219,18 @@ void XrdClientUrlInfo::TakeUrl(XrdOucString u)
 //_____________________________________________________________________________
 XrdOucString XrdClientUrlInfo::GetUrl()
 {
+   XrdOucString s;
+   GetUrl(s);
+   return s;
+}
+
+//_____________________________________________________________________________
+void XrdClientUrlInfo::GetUrl(XrdOucString& s)
+{
    // Get full url
    // The fields might have been modified, so the full url
    // must be reconstructed
 
-   XrdOucString s;
 
    if (Proto != "") {
       s = Proto;
@@ -254,9 +261,6 @@ XrdOucString XrdClientUrlInfo::GetUrl()
       s += "/";
       s += File;
    }
-
-   return s;
-
 }
 
 //_____________________________________________________________________________
