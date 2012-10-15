@@ -1080,7 +1080,8 @@ int XrdOfs::xolib(XrdOucStream &Config, XrdSysError &Eroute)
 // Record the parameters
 //
    if (OssParms) free(OssParms);
-   OssLib = (*parms ? strdup(parms) : 0);
+   // OssLib = (*parms ? strdup(parms) : 0);
+     OssParms = (*parms ? strdup(parms) : 0);
    return 0;
 }
 
