@@ -139,7 +139,11 @@ long long  addOffset(long long offs, int updtSz=0)
 
 long long   FSize() {return stat.size;}
 
-const char *Path() {return XClient->GetCurrentUrl().GetUrl().c_str();}
+const char *Path() {
+                pathBuff.erase();
+                XClient->GetCurrentUrl().GetUrl(pathBuff);
+                return pathBuff.c_str();
+            }
 
 int         Read (char *Buff, long long Offs, int Len)
                 {return XClient->Read (Buff, Offs, Len);}
@@ -215,6 +219,7 @@ int         cOpt;
 char        doClose;
 char        cbDone;
 char        fdClose;
+XrdOucString   pathBuff;
 };
 
 
