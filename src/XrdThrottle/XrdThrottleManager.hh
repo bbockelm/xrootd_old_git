@@ -67,11 +67,11 @@ XrdThrottleTimer StartIOTimer();
 
 void        PrepLoadShed(const char *opaque, std::string &lsOpaque);
 
-bool        CheckLoadShed(const std::string &opaque);
+bool        CheckLoadShed(size_t, const std::string &opaque);
 
 void        PerformLoadShed(const std::string &opaque, std::string &host, unsigned &port);
 
-            XrdThrottleManager(XrdSysError *lP, XrdOucTrace *tP);
+            XrdThrottleManager(XrdSysError &lP, XrdOucTrace &tP);
 
            ~XrdThrottleManager() {} // The buffmanager is never deleted
 
@@ -94,8 +94,8 @@ void        GetShares(int &shares, int &request);
 
 void        StealShares(int uid, int &reqsize, int &reqops);
 
-XrdOucTrace * m_trace;
-XrdSysError * m_log;
+XrdOucTrace  &m_trace;
+XrdSysError  &m_log;
 
 XrdSysCondVar m_compute_var;
 

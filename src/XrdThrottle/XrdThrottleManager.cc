@@ -6,7 +6,6 @@
 
 #include "XrdOuc/XrdOucEnv.hh"
 
-#define XRD_TRACE m_trace->
 #include "XrdThrottle/XrdThrottleTrace.hh"
 
 const char *
@@ -22,7 +21,7 @@ int XrdThrottleTimer::clock_id = clock_getcpuclockid(0, &clock_id) != ENOENT ? C
 int XrdThrottleTimer::clock_id = 0;
 #endif
 
-XrdThrottleManager::XrdThrottleManager(XrdSysError *lP, XrdOucTrace *tP) :
+XrdThrottleManager::XrdThrottleManager(XrdSysError &lP, XrdOucTrace &tP) :
    m_trace(tP),
    m_log(lP),
    m_interval_length_seconds(1.0),
@@ -64,7 +63,7 @@ XrdThrottleManager::Init()
    int rc;
    pthread_t tid;
    if ((rc = XrdSysThread::Run(&tid, XrdThrottleManager::RecomputeBootstrap, static_cast<void *>(this), 0, "Buffer Manager throttle")))
-      m_log->Emsg("ThrottleManager", rc, "create throttle thread");
+      m_log.Emsg("ThrottleManager", rc, "create throttle thread");
 
 }
 
@@ -317,7 +316,7 @@ XrdThrottleManager::StopIOTimer(struct timespec timer)
  * server, then do not load-shed it again.
  */
 bool
-XrdThrottleManager::CheckLoadShed(const std::string &opaque)
+XrdThrottleManager::CheckLoadShed(size_t amount, const std::string &opaque)
 {
    if (m_loadshed_port == 0)
    {
@@ -327,7 +326,7 @@ XrdThrottleManager::CheckLoadShed(const std::string &opaque)
    {
       return false;
    }
-   if (rand() % 100 > m_loadshed_frequency)
+   if (rand() % 100*1024*1024*10 > (m_loadshed_frequency)*(amount))
    {
       return false;
    }

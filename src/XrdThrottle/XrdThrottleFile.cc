@@ -6,31 +6,36 @@
 
 using namespace XrdThrottle;
 
-#define DO_LOADSHED if (m_throttle.CheckLoadShed(m_loadshed)) \
+#define DO_LOADSHED(amount) if (m_redir || m_throttle.CheckLoadShed(amount, m_loadshed)) \
 { \
    unsigned port; \
    std::string host; \
    m_throttle.PerformLoadShed(m_loadshed, host, port); \
-   m_eroute.Emsg("File", "Performing load-shed for client", m_user.c_str()); \
+   TRACE(LOADSHED, "Performing load-shed for client " << m_user); \
    error.setErrInfo(port, host.c_str()); \
+   m_redir = true; \
    return SFS_REDIRECT; \
 }
 
 #define DO_THROTTLE(amount) \
-DO_LOADSHED \
+DO_LOADSHED(amount) \
 m_throttle.Apply(amount, 1, m_uid); \
 XrdThrottleTimer xtimer = m_throttle.StartIOTimer();
+
+const char * File::TraceID = "XrdThrottleFile";
 
 File::File(const char                     *user,
                  int                       monid,
                  std::auto_ptr<XrdSfsFile> sfs,
                  XrdThrottleManager       &throttle,
-                 XrdSysError              &eroute)
+                 XrdOucTrace              &trace)
    : m_sfs(sfs), // Guaranteed to be non-null by FileSystem::newFile
      m_uid(0),
+     m_redir(false),
+     m_passAlongPreread(false),
      m_user(user),
      m_throttle(throttle),
-     m_eroute(eroute)
+     m_trace(trace)
 {}
 
 File::~File()
@@ -60,7 +65,11 @@ File::fctl(const int               cmd,
                  XrdOucErrInfo    &out_error)
 {
    // Disable sendfile
-   if (cmd == SFS_FCTL_GETFD) return SFS_ERROR;
+   if (cmd == SFS_FCTL_PREAD)
+   {
+      m_passAlongPreread = m_sfs->fctl(cmd, args, out_error) == SFS_OK;
+      return SFS_OK;
+   }
    else return m_sfs->fctl(cmd, args, out_error);
 }
 
@@ -81,7 +90,10 @@ File::read(XrdSfsFileOffset   fileOffset,
            XrdSfsXferSize     amount)
 {
    DO_THROTTLE(amount)
-   return m_sfs->read(fileOffset, amount);
+   if (m_passAlongPreread)
+      return m_sfs->read(fileOffset, amount);
+   else
+      return SFS_OK;
 }
 
 XrdSfsXferSize
@@ -95,10 +107,17 @@ File::read(XrdSfsFileOffset   fileOffset,
 
 int
 File::read(XrdSfsAio *aioparm)
-{  // We disable all AIO-based reads.
-   aioparm->Result = this->read((XrdSfsFileOffset)aioparm->sfsAio.aio_offset,
-                                          (char *)aioparm->sfsAio.aio_buf,
-                                  (XrdSfsXferSize)aioparm->sfsAio.aio_nbytes);
+{
+   // Note that loadshed does not work for async requests due to 
+   // state issues in the AIO objects.  Basically, the AIO sendError
+   // method cannot get enough information to know how to respond with
+   // the correct redirect information.
+   m_throttle.Apply(aioparm->sfsAio.aio_nbytes, 1, m_uid);
+   XrdThrottleTimer xtimer = m_throttle.StartIOTimer();
+   aioparm->Result = m_sfs->read((XrdSfsFileOffset)aioparm->sfsAio.aio_offset,
+                                           (char *)aioparm->sfsAio.aio_buf,
+                                   (XrdSfsXferSize)aioparm->sfsAio.aio_nbytes);
+
    aioparm->doneRead();
    return SFS_OK;
 }
@@ -108,20 +127,25 @@ File::write(      XrdSfsFileOffset   fileOffset,
             const char              *buffer,
                   XrdSfsXferSize     buffer_size)
 {
-   DO_THROTTLE(buffer_size);
+   // Cannot use DO_THROTTLE as upper layers cannot handle loadshed.
+   //DO_THROTTLE(buffer_size);
+   m_throttle.Apply(buffer_size, 1, m_uid);
+   XrdThrottleTimer xtimer = m_throttle.StartIOTimer();
+
    return m_sfs->write(fileOffset, buffer, buffer_size);
 }
 
 int
 File::write(XrdSfsAio *aioparm)
 {
+   m_throttle.Apply(aioparm->sfsAio.aio_nbytes, 1, m_uid);
+   XrdThrottleTimer xtimer = m_throttle.StartIOTimer();
+
    aioparm->Result = this->write((XrdSfsFileOffset)aioparm->sfsAio.aio_offset,
                                            (char *)aioparm->sfsAio.aio_buf,
                                    (XrdSfsXferSize)aioparm->sfsAio.aio_nbytes);
    aioparm->doneRead();
    return SFS_OK;
-
-   return m_sfs->write(aioparm);
 }
 
 int

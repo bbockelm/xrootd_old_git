@@ -81,7 +81,7 @@ XrdVERSIONINFO(XrdSfsGetFileSystem, FileSystem);
 FileSystem* FileSystem::m_instance = 0;
 
 FileSystem::FileSystem()
-   : m_eroute(0), m_trace(&m_eroute), m_sfs_ptr(0), m_initialized(false), m_throttle(&m_eroute, &m_trace)
+   : m_eroute(0), m_trace(&m_eroute), m_sfs_ptr(0), m_initialized(false), m_throttle(m_eroute, m_trace)
 {
    myVersion = &XrdVERSIONINFOVAR(XrdSfsGetFileSystem);
 }
@@ -231,7 +231,7 @@ FileSystem::xthrottle(XrdOucStream &Config)
              <hostname> hostname of server to shed load to.  Required
              <port>     port of server to shed load to.  Defaults to 1094
              <freq>     A value from 1 to 100 specifying how often to shed load
-                        (1 = 1% chance; 100 = 100% chance; defaults to 10).
+                        (1 = 1% chance per 10 MB read; 100 = 100% chance; defaults to 10).
 
    Output: 0 upon success or !0 upon failure.
 */
@@ -303,6 +303,7 @@ int FileSystem::xtrace(XrdOucStream &Config)
       {"iops",      TRACE_IOPS},
       {"bandwidth", TRACE_BANDWIDTH},
       {"ioload",    TRACE_IOLOAD},
+      {"loadshed",  TRACE_LOADSHED},
    };
    int i, neg, trval = 0, numopts = sizeof(tropts)/sizeof(struct traceopts);
 

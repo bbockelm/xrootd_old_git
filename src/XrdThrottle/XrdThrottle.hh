@@ -81,17 +81,21 @@ public:
    getCXinfo(char cxtype[4], int &cxrsz);
 
 private:
-   File(const char *user, int monid, std::auto_ptr<XrdSfsFile>, XrdThrottleManager &throttle, XrdSysError &eroute);
+   File(const char *user, int monid, std::auto_ptr<XrdSfsFile>, XrdThrottleManager &throttle, XrdOucTrace &trace);
 
    virtual
    ~File();
 
    std::auto_ptr<XrdSfsFile> m_sfs;
    int m_uid; // A unique identifier for this user; has no meaning except for the fairshare.
+   bool m_redir;
+   bool m_passAlongPreread;
    std::string m_loadshed;
    std::string m_user;
    XrdThrottleManager &m_throttle;
-   XrdSysError &m_eroute;
+   XrdOucTrace &m_trace;
+
+   static const char *TraceID;
 };
 
 class FileSystem : public XrdSfsFileSystem

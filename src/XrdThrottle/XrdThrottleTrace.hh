@@ -10,6 +10,7 @@
 #define TRACE_IOPS      0x0002
 #define TRACE_IOLOAD    0x0004
 #define TRACE_DEBUG     0x0008
+#define TRACE_LOADSHED  0x0010
 
 #ifndef NODEBUG
 
@@ -17,7 +18,7 @@
 #include "XrdOuc/XrdOucTrace.hh"
 
 #ifndef XRD_TRACE
-#define XRD_TRACE m_trace->
+#define XRD_TRACE m_trace.
 #endif
 
 #define TRACE(act, x) \
