@@ -33,10 +33,11 @@
 #include <unistd.h>
 #include <time.h>
 
-#include <XrdSut/XrdSutCache.hh>
-#include <XrdSut/XrdSutPFile.hh>
-#include <XrdSut/XrdSutTrace.hh>
-#include <XrdSut/XrdSutAux.hh>
+#include "XrdSut/XrdSutCache.hh"
+#include "XrdSut/XrdSutPFile.hh"
+#include "XrdSut/XrdSutTrace.hh"
+#include "XrdSut/XrdSutAux.hh"
+#include "XrdSys/XrdSysTimer.hh"
 
 /******************************************************************************/
 /*                                                                            */
@@ -78,13 +79,20 @@ int XrdSutCache::Init(int capacity, bool lock)
 
    // Lock for writing
    if (lock) rwlock.WriteLock();
-   
+
+   // Nothing to do if already done
+   if (isinit) {
+      if (lock) rwlock.UnLock();
+      return 0;
+   }
+
    // Make sure capacity makes sense; use a default, if not
    capacity = (capacity > 0) ? capacity : 100;
 
    // Allocate
    cachent = new XrdSutPFEntry *[capacity];
    if (cachent) {
+      for (int i = 0; i < capacity; i++) { cachent[i] = 0; }
       cachesz = capacity;
       DEBUG("cache allocated for "<<cachesz<<" entries");
 
@@ -101,19 +109,25 @@ int XrdSutCache::Init(int capacity, bool lock)
 
    } else
       DEBUG("could not allocate cache - out-of-resources ");
+
+   // Flag has initialized
+   isinit = 1;
+
    // UnLock
    if (lock) rwlock.UnLock();
    return -1;
 }
 
 //__________________________________________________________________
-XrdSutPFEntry *XrdSutCache::Get(const char *ID, bool *wild)
+XrdSutPFEntry *XrdSutCache::Get(XrdSutCacheRef &urRef, const char *ID, bool *wild)
 {
    // Retrieve an entry with ID, if any
    // If wild is defined, search also best matching regular expression
    // with wildcard '*'; *wild = 0 will indicate exact match, 
    // *wild = 1 wild card compatibility match 
    EPNAME("Cache::Get");
+   XrdSutPFEntry *pfEnt;
+   int i;
 
    TRACE(Dump,"locating entry for ID: "<<ID);
 
@@ -132,6 +146,32 @@ XrdSutPFEntry *XrdSutCache::Get(const char *ID, bool *wild)
 
    // Lock for reading
    XrdSysRWLockHelper isg(rwlock, 1);
+
+   // Find the entry and lock it. Repeat if we can get a lock.
+   //
+   for (i = 0; i < maxTries; i++)
+       {if ((pfEnt = Get(ID, wild)))
+           {if (pfEnt->pfeMutex.CondLock())
+               {urRef.Set(&(pfEnt->pfeMutex));
+                return pfEnt;
+               }
+           } else return pfEnt;
+        isg.UnLock();
+        XrdSysTimer::Wait(retryMSW);
+        if (Rehash() != 0)
+           {DEBUG("problems rehashing");
+            return (XrdSutPFEntry *)0 ;
+           }
+        isg.Lock(&rwlock, 1);
+       }
+
+   // Nothing found
+   return (XrdSutPFEntry *)0 ;
+}
+
+//__________________________________________________________________
+XrdSutPFEntry *XrdSutCache::Get(const char *ID, bool *wild)
+{
 
    // Look in the hash first
    kXR_int32 *ie = hashtable.Find(ID);
@@ -164,7 +204,7 @@ XrdSutPFEntry *XrdSutCache::Get(const char *ID, bool *wild)
 }
 
 //__________________________________________________________________
-XrdSutPFEntry *XrdSutCache::Add(const char *ID, bool force)
+XrdSutPFEntry *XrdSutCache::Add(XrdSutCacheRef &urRef, const char *ID, bool force)
 {
    // Add an entry with ID in cache
    // Cache buffer is re-allocated with double size, if needed
@@ -180,7 +220,7 @@ XrdSutPFEntry *XrdSutCache::Add(const char *ID, bool force)
 
    //
    // If an entry already exists, return it
-   XrdSutPFEntry *ent = Get(ID);
+   XrdSutPFEntry *ent = Get(urRef, ID);
    if (ent)
       return ent;
 
@@ -245,7 +285,8 @@ XrdSutPFEntry *XrdSutCache::Add(const char *ID, bool force)
       return (XrdSutPFEntry *)0 ;
    }
 
-   // We are done      
+   // We are done (we can lock the entry without a wait)
+   urRef.Lock(&(cachent[pos]->pfeMutex));
    return cachent[pos];
 }
 
@@ -285,7 +326,7 @@ bool XrdSutCache::Remove(const char *ID, int opt)
       //
       // Check if pos makes sense
       if (cachent[pos] && !strcmp(cachent[pos]->name,ID)) {
-         delete cachent[pos];
+         if (!Delete(cachent[pos])) DEBUG("Delete defered for " <<ID);
          cachent[pos] = 0;
          // We are done, if not the one at highest index
          if (pos < cachemx)
@@ -299,7 +340,7 @@ bool XrdSutCache::Remove(const char *ID, int opt)
       for (; i >= 0; i--) {
          if (cachent[i]) {
             if (!strncmp(cachent[i]->name,ID,strlen(ID))) {
-               delete cachent[i];
+               if (!Delete(cachent[i])) DEBUG("Delete defered for " <<ID);
                cachent[i] = 0;
                found = 1;
             }
@@ -323,6 +364,49 @@ bool XrdSutCache::Remove(const char *ID, int opt)
 }
 
 //__________________________________________________________________
+bool XrdSutCache::Delete(XrdSutPFEntry *pfEnt)
+{
+   struct pfQ {pfQ           *next;
+               XrdSutPFEntry *pfEnt;
+                              pfQ(pfQ *cP, XrdSutPFEntry *tP)
+                                 : next(cP), pfEnt(tP) {}
+                             ~pfQ() {delete pfEnt;}
+              };
+   EPNAME("Cache::Delete");
+   static pfQ pfDefer(0,0);
+
+// Try to remove all defered entries first
+//
+   if (pfDefer.next)
+      {pfQ *pQ = &pfDefer, *dQ;
+       int nTot = 0, dTot = 0;
+       while((dQ = pQ->next))
+            {nTot++;
+             if (dQ->pfEnt->pfeMutex.CondLock())
+                {pQ->next = dQ->next;
+                 dQ->pfEnt->pfeMutex.UnLock();
+                 delete dQ;
+                 dTot++;
+                } else pQ = dQ;
+            }
+       if (nTot) DEBUG("Defered delete " <<dTot <<" of " <<nTot);
+      }
+
+// Now try to delete this entry
+//
+   if (pfEnt->pfeMutex.CondLock())
+      {pfEnt->pfeMutex.UnLock();
+       delete pfEnt;
+       return true;
+      }
+
+// Defer the delete as someone still has a reference to the entry
+//
+   pfDefer.next = new pfQ(pfDefer.next, pfEnt);
+   return false;
+}
+
+//__________________________________________________________________
 int XrdSutCache::Trim(int lifet)
 {
    // Remove entries older then lifet seconds. If lifet <=0, compare
@@ -330,6 +414,7 @@ int XrdSutCache::Trim(int lifet)
    // Return number of entries removed
 
    // Lock for writing
+   EPNAME("Cache::Trim");
    XrdSysRWLockHelper isg(rwlock, 0);
 
    //
@@ -344,7 +429,8 @@ int XrdSutCache::Trim(int lifet)
    int i = cachemx, nrm = 0;
    for (; i >= 0; i--) {
       if (cachent[i] && cachent[i]->mtime < reftime) {
-         delete cachent[i];
+         if (!Delete(cachent[i]))
+            DEBUG("Delete defered for " <<cachent[i]->name);
          cachent[i] = 0;
          nrm++;
       }
@@ -364,6 +450,7 @@ int XrdSutCache::Reset(int newsz, bool lock)
    // Remove all existing entries.
    // If newsz > -1, set new capacity to newsz, reallocating if needed
    // Return 0 if ok, -1 if problems reallocating.
+   EPNAME("Cache::Reset");
 
    // Lock for writing
    if (lock) rwlock.WriteLock();
@@ -372,7 +459,8 @@ int XrdSutCache::Reset(int newsz, bool lock)
    int i = cachemx;
    for (; i >= 0; i--) {
       if (cachent[i]) {
-         delete cachent[i];
+         if (!Delete(cachent[i]))
+            DEBUG("Delete defered for " <<cachent[i]->name);
          cachent[i] = 0;
       }
    }
@@ -384,6 +472,7 @@ int XrdSutCache::Reset(int newsz, bool lock)
       cachent = 0;
       cachesz = 0;      
       cachemx = -1;
+      isinit = 0;
       rc = Init(newsz, 0);
    }
 

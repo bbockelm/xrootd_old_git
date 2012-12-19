@@ -48,6 +48,7 @@
 
 #include "XrdOfs/XrdOfs.hh"
 #include "XrdOfs/XrdOfsEvs.hh"
+#include "XrdOfs/XrdOfsHandle.hh"
 #include "XrdOfs/XrdOfsPoscq.hh"
 #include "XrdOfs/XrdOfsTrace.hh"
 #include "XrdOfs/XrdOfsSecurity.hh"
@@ -67,6 +68,7 @@
 
 #include "XrdOuc/XrdOuca2x.hh"
 #include "XrdOuc/XrdOucEnv.hh"
+#include "XrdOuc/XrdOucERoute.hh"
 #include "XrdOuc/XrdOucLock.hh"
 #include "XrdOuc/XrdOucMsubs.hh"
 #include "XrdOuc/XrdOucTList.hh"
@@ -589,7 +591,8 @@ int XrdOfsFile::open(const char          *path,      // In
            return XrdOfsFS->fsError(error, SFS_STARTED);
           }
        if (retc == -ETXTBSY) return XrdOfsFS->Stall(error, -1, path);
-       if (XrdOfsFS->Balancer) XrdOfsFS->Balancer->Removed(path);
+       if (XrdOfsFS->Balancer && retc != -ECANCELED)
+          XrdOfsFS->Balancer->Removed(path);
        return XrdOfsFS->Emsg(epname, error, retc, "open", path);
       }
 
@@ -1290,6 +1293,12 @@ int XrdOfs::chksum(      csFunc            Func,   // In
 //
    XTRACE(stat, Path, csName);
    AUTHORIZE(client,&cksEnv,AOP_Stat,"checksum",Path,einfo);
+
+// If we are a menager then we need to redirect the client to where the file is
+//
+   if (Finder && Finder->isRemote() 
+   &&  (rc = Finder->Locate(einfo, Path, SFS_O_RDONLY, &cksEnv)))
+      return fsError(einfo, rc);
 
 // At this point we need to convert the lfn to a pfn
 //
@@ -2014,7 +2023,7 @@ int XrdOfs::Emsg(const char    *pfx,    // Message prefix value
                  const char    *op,     // Operation being performed
                  const char    *target) // The target (e.g., fname)
 {
-   char *etext, buffer[MAXPATHLEN+80], unkbuff[64];
+   char buffer[MAXPATHLEN+80];
 
 // If the error is EBUSY then we just need to stall the client. This is
 // a hack in order to provide for proxy support
@@ -2026,14 +2035,9 @@ int XrdOfs::Emsg(const char    *pfx,    // Message prefix value
 //
    if (ecode == ETIMEDOUT) return OSSDelay;
 
-// Get the reason for the error
-//
-   if (!(etext = OfsEroute.ec2text(ecode))) 
-      {sprintf(unkbuff, "reason unknown (%d)", ecode); etext = unkbuff;}
-
 // Format the error message
 //
-    snprintf(buffer,sizeof(buffer),"Unable to %s %s; %s", op, target, etext);
+   XrdOucERoute::Format(buffer, sizeof(buffer), ecode, op, target);
 
 // Print it out if debugging is enabled
 //

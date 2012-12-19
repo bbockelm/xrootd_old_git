@@ -236,7 +236,6 @@ static char               *Notify;
 static char                isRedir;
 static char                chkfsV;
 static char                JobLCL;
-static char                JobQCS;
 static XrdXrootdJob       *JobCKS;
 static char               *JobCKT;
 
@@ -264,13 +263,17 @@ static const int           maxRvecsz = 1024;   // Maximum read vector size
 // Statistical area
 //
 static XrdXrootdStats     *SI;
-int                        numReads;     // Count
-int                        numReadP;     // Count
+int                        numReads;     // Count for kXR_read
+int                        numReadP;     // Count for kXR_read pre-preads
+int                        numReadV;     // Count for kR_readv
+int                        numSegsV;     // Count for kR_readv segmens
 int                        numWrites;    // Count
 int                        numFiles;     // Count
 
 int                        cumReads;     // Count less numReads
 int                        cumReadP;     // Count less numReadP
+int                        cumReadV;     // Count less numReadV
+int                        cumSegsV;     // Count less numSegsV
 int                        cumWrites;    // Count less numWrites
 long long                  totReadP;     // Bytes
 
@@ -298,7 +301,10 @@ int                        myBlen;
 int                        myBlast;
 int                       (XrdXrootdProtocol::*Resume)();
 XrdXrootdFile             *myFile;
+union {
 long long                  myOffset;
+int                        myEInfo[2];
+      };
 int                        myIOLen;
 int                        myStalls;
 

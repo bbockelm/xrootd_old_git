@@ -36,9 +36,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include <XProtocol/XPtypes.hh>
-#include <XrdSut/XrdSutBucket.hh>
-#include <XrdCrypto/XrdCryptoRSA.hh>
+#include "XProtocol/XPtypes.hh"
+#include "XrdSut/XrdSutBucket.hh"
+#include "XrdCrypto/XrdCryptoRSA.hh"
 
 typedef void * XrdCryptoX509data;
 
@@ -92,11 +92,13 @@ public:
 
    // Issuer of top certificate
    virtual const char *Issuer();
-   virtual const char *IssuerHash();   // hash 
+   virtual const char *IssuerHash(int);   // hash 
+   const char *IssuerHash() { return IssuerHash(0); }   // hash 
 
    // Subject of bottom certificate
    virtual const char *Subject();
-   virtual const char *SubjectHash();   // hash 
+   virtual const char *SubjectHash(int);   // hash 
+   const char *SubjectHash() { return SubjectHash(0); }  // hash 
 
    // Retrieve a given extension if there (in opaque form) 
    virtual XrdCryptoX509data GetExtension(const char *oid);

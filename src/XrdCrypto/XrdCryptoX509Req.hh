@@ -36,8 +36,8 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include <XrdSut/XrdSutBucket.hh>
-#include <XrdCrypto/XrdCryptoRSA.hh>
+#include "XrdSut/XrdSutBucket.hh"
+#include "XrdCrypto/XrdCryptoRSA.hh"
 
 typedef void * XrdCryptoX509Reqdata;
 
@@ -70,7 +70,8 @@ public:
 
    // Subject of bottom certificate
    virtual const char *Subject();
-   virtual const char *SubjectHash();   // hash 
+   virtual const char *SubjectHash(int);   // hash 
+   const char *SubjectHash() { return SubjectHash(0); }   // hash 
 
    // Retrieve a given extension if there (in opaque form) 
    virtual XrdCryptoX509Reqdata GetExtension(const char *oid);

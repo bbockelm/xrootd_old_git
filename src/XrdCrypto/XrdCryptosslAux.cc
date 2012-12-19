@@ -37,11 +37,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <XrdCrypto/XrdCryptoX509Chain.hh>
-#include <XrdCrypto/XrdCryptosslAux.hh>
-#include <XrdCrypto/XrdCryptosslRSA.hh>
-#include <XrdCrypto/XrdCryptosslX509.hh>
-#include <XrdCrypto/XrdCryptosslTrace.hh>
+#include "XrdCrypto/XrdCryptoX509Chain.hh"
+#include "XrdCrypto/XrdCryptosslAux.hh"
+#include "XrdCrypto/XrdCryptosslRSA.hh"
+#include "XrdCrypto/XrdCryptosslX509.hh"
+#include "XrdCrypto/XrdCryptosslTrace.hh"
 #include <openssl/pem.h>
 
 // Error code from verification set by verify callback function
@@ -62,21 +62,6 @@ int XrdCryptosslX509VerifyCB(int ok, X509_STORE_CTX *ctx)
 
    // We are done
    return ok;
-}
-
-//  Hashing algorithm control
-static bool gX509UseHashOld = 0;
-//____________________________________________________________________________
-void XrdCryptosslSetUseHashOld(bool on)
-{
-   // Set gX509UseHashOld
-   gX509UseHashOld = on;
-}
-//____________________________________________________________________________
-bool XrdCryptosslUseHashOld()
-{
-   // Get gX509UseHashOld
-   return gX509UseHashOld;
 }
 
 //____________________________________________________________________________
@@ -659,3 +644,27 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1)
    // We are done
    return etime;
 } 
+
+//____________________________________________________________________________
+void XrdCryptosslNameOneLine(X509_NAME *nm, XrdOucString &s)
+{
+   // Function to convert X509_NAME into a one-line human readable string
+
+#ifndef USEX509NAMEONELINE
+   BIO *mbio = BIO_new(BIO_s_mem());
+   X509_NAME_print_ex(mbio, nm, 0, XN_FLAG_COMPAT);
+   char *data = 0;
+   long len = BIO_get_mem_data(mbio, &data);
+   s = "/";
+   s.insert(data, 1, len);
+   BIO_free(mbio);
+   s.replace(", ", "/");
+#else
+   char *xn = X509_NAME_oneline(nm, 0, 0);
+   s = xn;
+   OPENSSL_free(xn);
+#endif
+
+   // Done
+   return;
+}

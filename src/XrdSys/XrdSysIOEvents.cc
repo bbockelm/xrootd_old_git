@@ -423,6 +423,7 @@ void XrdSys::IOEvents::Channel::Reset(XrdSys::IOEvents::Poller *thePoller,
      chEvents = 0;
      dlType   = 0;
      inPSet   = 0;
+     reMod    = 0;
      rdDL     = Poller::maxTime;
      wrDL     = Poller::maxTime;
      deadLine = Poller::maxTime;
@@ -597,8 +598,11 @@ bool XrdSys::IOEvents::Poller::CbkXeq(XrdSys::IOEvents::Channel *cP, int events,
    if (eNum)
       {if (cP->chEvents & Channel::errorEvents)
           {cP->chPoller = &pollErr1; cP->chFault = eNum;
+           cP->chStat   = Channel::isCBMode;
+           chDead       = false;
+           cbkMHelp.UnLock();
            cP->chCB->Fatal(cP,cP->chCBA, eNum, eTxt);
-           return false;
+           return (chDead ? true : false);
           }
             if (REVENTS(cP->chEvents)) events = CallBack::ReadyToRead;
        else if (WEVENTS(cP->chEvents)) events = CallBack::ReadyToWrite;
@@ -612,14 +616,14 @@ bool XrdSys::IOEvents::Poller::CbkXeq(XrdSys::IOEvents::Channel *cP, int events,
 //
    cP->chStat = Channel::isCBMode;
    chDead     = false;
-   cP->chMutex.UnLock();
+   cbkMHelp.UnLock();
    cbok = cP->chCB->Event(cP,cP->chCBA, events);
 
 // If channel destroyed by the callback, bail really fast. Otherwise, regain
 // the channel lock.
 //
    if (chDead) return true;
-   cP->chMutex.Lock();
+   cbkMHelp.Lock(&(cP->chMutex));
 
 // If the channel is being destroyed; then another thread must have done so.
 // Tell it the callback has finished and just return.

@@ -34,8 +34,8 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include <XrdCrypto/XrdCryptoX509Req.hh>
-#include <XrdCrypto/XrdCryptoTrace.hh>
+#include "XrdCrypto/XrdCryptoX509Req.hh"
+#include "XrdCrypto/XrdCryptoTrace.hh"
 
 //_____________________________________________________________________________
 void XrdCryptoX509Req::Dump()
@@ -46,7 +46,7 @@ void XrdCryptoX509Req::Dump()
    PRINT("+++++++++++++++ X509 request dump ++++++++++++++++");
    PRINT("+");
    PRINT("+ Subject: "<<Subject());
-   PRINT("+ Subject hash: "<<SubjectHash());
+   PRINT("+ Subject hash: "<<SubjectHash(0));
    PRINT("+");
    if (PKI()) {
       PRINT("+ PKI: "<<PKI()->Status());
@@ -74,7 +74,7 @@ const char *XrdCryptoX509Req::Subject()
 }
 
 //_____________________________________________________________________________
-const char *XrdCryptoX509Req::SubjectHash()
+const char *XrdCryptoX509Req::SubjectHash(int)
 {
    // Return subject name
    ABSTRACTMETHOD("XrdCryptoX509Req::SubjectHash");

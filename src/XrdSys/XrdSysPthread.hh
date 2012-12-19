@@ -242,6 +242,12 @@ inline void UnLock() {pthread_rwlock_unlock(&lock);}
         XrdSysRWLock() {pthread_rwlock_init(&lock, NULL);}
        ~XrdSysRWLock() {pthread_rwlock_destroy(&lock);}
 
+inline void ReInitialize()
+{
+  pthread_rwlock_destroy(&lock);
+  pthread_rwlock_init(&lock, NULL);
+}
+
 protected:
 
 pthread_rwlock_t lock;
@@ -294,7 +300,7 @@ XrdSysRWLock *lck;
 //                 semaphores need to be implemented based on condition
 //                 variables since no native implementation is available.
   
-#ifdef __macos__
+#ifdef __APPLE__
 class XrdSysSemaphore
 {
 public:

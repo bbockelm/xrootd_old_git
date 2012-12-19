@@ -51,6 +51,8 @@
 #include "XrdOfs/XrdOfsTPC.hh"
 #include "XrdOfs/XrdOfsTrace.hh"
 
+#include "XrdOss/XrdOss.hh"
+
 #include "XrdOuc/XrdOuca2x.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -135,7 +137,7 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
 // Allocate a checksum configurator at this point
 //
    CksConfig = new XrdCksConfig(ConfigFN, &Eroute, retc,
-                                &XrdVERSIONINFOVAR(XrdOfs));
+                                XrdVERSIONINFOVAR(XrdOfs));
    if (!retc) NoGo = 1;
 
 // If there is no config file, return with the defaults sets.
@@ -258,9 +260,9 @@ int XrdOfs::Configure(XrdSysError &Eroute, XrdOucEnv *EnvInfo) {
           fwdTRUNC.Reset();
          }
 
-// Configure checksums if we are not a manager
+// Configure checksums even for managers
 //
-   if (!(Options & isManager) && !NoGo)
+   if (!NoGo)
       NoGo |= (Cks = CksConfig->Configure(0, CksRdsz)) == 0;
    delete CksConfig;
    CksConfig = 0;
@@ -1080,8 +1082,7 @@ int XrdOfs::xolib(XrdOucStream &Config, XrdSysError &Eroute)
 // Record the parameters
 //
    if (OssParms) free(OssParms);
-   // OssLib = (*parms ? strdup(parms) : 0);
-     OssParms = (*parms ? strdup(parms) : 0);
+   OssParms = (*parms ? strdup(parms) : 0);
    return 0;
 }
 

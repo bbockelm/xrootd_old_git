@@ -54,8 +54,15 @@
 #define XROOTD_MON_PATH    (XROOTD_MON_IO   | XROOTD_MON_FILE)
 #define XROOTD_MON_REDR    64
 #define XROOTD_MON_IOV    128
+#define XROOTD_MON_FSTA   256
+
+#define XROOTD_MON_FSLFN    1
+#define XROOTD_MON_FSOPS    2
+#define XROOTD_MON_FSSSQ    4
+#define XROOTD_MON_FSXFR    8
 
 class XrdScheduler;
+class XrdXrootdMonFile;
   
 /******************************************************************************/
 /*                C l a s s   X r d X r o o t d M o n i t o r                 */
@@ -66,6 +73,7 @@ class XrdXrootdMonitor
 public:
        class User;
 friend class User;
+friend class XrdXrootdMonFile;
 
 // All values for Add_xx() must be passed in network byte order
 //
@@ -77,10 +85,11 @@ inline void              Add_rd(kXR_unt32 dictid,
 inline void              Add_rv(kXR_unt32 dictid,
                                 kXR_int32 rlen,
                                 kXR_int16 vcnt,
-                                kXR_char  vseq)
+                                kXR_char  vseq,
+                                kXR_char  vtype)
                                {if (lastWindow != currWindow) Mark();
                                    else if (nextEnt == lastEnt) Flush();
-                                monBuff->info[nextEnt].arg0.id[0]    = XROOTD_MON_READV;
+                                monBuff->info[nextEnt].arg0.id[0]    = vtype;
                                 monBuff->info[nextEnt].arg0.id[1]    = vseq;
                                 monBuff->info[nextEnt].arg0.sVal[1]  = vcnt;
                                 monBuff->info[nextEnt].arg0.rTot[1]  = 0;
@@ -100,8 +109,9 @@ inline void              Add_wr(kXR_unt32 dictid,
        void              Disc(kXR_unt32 dictid, int csec, char Flags=0);
 
 static void              Defaults(char *dest1, int m1, char *dest2, int m2);
-static void              Defaults(int msz, int rsz, int wsz,
-                                  int flush, int flash, int iDent, int rnm);
+static void              Defaults(int msz,     int rsz,     int wsz,
+                                  int flush,   int flash,   int iDent, int rnm,
+                                  int fsint=0, int fsopt=0, int fsion=0);
 
 static void              Ident() {Send(-1, idRec, idLen);}
 
@@ -141,6 +151,8 @@ void               Clear() {if (Name)  {free(Name); Name = 0; Len = 0;}
        void        Disable();
 
 inline int         Files()  {return (Agent ? Fops : 0);}
+
+inline int         Fstat()  {return monFSTAT;}
 
 inline int         Info()   {return (Agent ? XrdXrootdMonitor::monINFO : 0);}
 
@@ -205,6 +217,7 @@ static void              fillHeader(XrdXrootdMonHeader *hdr,
 static MonRdrBuff       *Fetch();
        void              Flush();
 static void              Flush(MonRdrBuff *mP);
+static kXR_unt32         GetDictID();
 static kXR_unt32         Map(char  code, XrdXrootdMonitor::User &uInfo,
                              const char *path);
        void              Mark();
@@ -253,5 +266,7 @@ static char               monREDR;
 static char               monUSER;
 static char               monAUTH;
 static char               monACTIVE;
+static char               monFSTAT;
+static char               monCLOCK;
 };
 #endif

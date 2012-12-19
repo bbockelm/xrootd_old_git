@@ -8,6 +8,8 @@ set( XRD_UTILS_VERSION   1.0.0 )
 set( XRD_UTILS_SOVERSION 1 )
 set( XRD_MAIN_VERSION    1.0.0 )
 set( XRD_MAIN_SOVERSION  1 )
+set( XRD_ZCRC32_VERSION   1.0.0 )
+set( XRD_ZCRC32_SOVERSION 1 )
 
 #-------------------------------------------------------------------------------
 # The XrdSys library
@@ -58,6 +60,7 @@ add_library(
   XrdOuc/XrdOucEnv.cc           XrdOuc/XrdOucEnv.hh
                                 XrdOuc/XrdOucHash.hh
                                 XrdOuc/XrdOucHash.icc
+  XrdOuc/XrdOucERoute.cc        XrdOuc/XrdOucERoute.hh
   XrdOuc/XrdOucExport.cc        XrdOuc/XrdOucExport.hh
   XrdOuc/XrdOucHashVal.cc
   XrdOuc/XrdOucMsubs.cc         XrdOuc/XrdOucMsubs.hh
@@ -68,6 +71,7 @@ add_library(
   XrdOuc/XrdOucProg.cc          XrdOuc/XrdOucProg.hh
   XrdOuc/XrdOucPup.cc           XrdOuc/XrdOucPup.hh
   XrdOuc/XrdOucReqID.cc         XrdOuc/XrdOucReqID.hh
+  XrdOuc/XrdOucSiteName.cc      XrdOuc/XrdOucSiteName.hh
   XrdOuc/XrdOucStream.cc        XrdOuc/XrdOucStream.hh
   XrdOuc/XrdOucString.cc        XrdOuc/XrdOucString.hh
   XrdOuc/XrdOucSxeq.cc          XrdOuc/XrdOucSxeq.hh
@@ -142,6 +146,7 @@ add_library(
   XrdCks/XrdCksCalccrc32.cc        XrdCks/XrdCksCalccrc32.hh
   XrdCks/XrdCksCalcmd5.cc          XrdCks/XrdCksCalcmd5.hh
   XrdCks/XrdCksConfig.cc           XrdCks/XrdCksConfig.hh
+  XrdCks/XrdCksLoader.cc           XrdCks/XrdCksLoader.hh
   XrdCks/XrdCksManager.cc          XrdCks/XrdCksManager.hh
                                    XrdCks/XrdCksCalcadler32.hh
                                    XrdCks/XrdCksCalc.hh
@@ -166,6 +171,26 @@ set_target_properties(
   LINK_INTERFACE_LIBRARIES "" )
 
 #-------------------------------------------------------------------------------
+# libz compatible CRC32
+#-------------------------------------------------------------------------------
+add_library(
+  XrdCksCalczcrc32
+  SHARED
+  XrdCks/XrdCksCalczcrc32.cc )
+
+target_link_libraries(
+  XrdCksCalczcrc32
+  XrdUtils
+  ${ZLIB_LIBRARY} )
+
+set_target_properties(
+  XrdCksCalczcrc32
+  PROPERTIES
+  VERSION   ${XRD_ZCRC32_VERSION}
+  SOVERSION ${XRD_ZCRC32_SOVERSION}
+  LINK_INTERFACE_LIBRARIES "" )
+
+#-------------------------------------------------------------------------------
 # The helper lib
 #-------------------------------------------------------------------------------
 add_library(
@@ -186,47 +211,5 @@ set_target_properties(
 # Install
 #-------------------------------------------------------------------------------
 install(
-  TARGETS XrdUtils XrdMain
+  TARGETS XrdUtils XrdMain XrdCksCalczcrc32
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} )
-
-install(
-  DIRECTORY      XrdSys/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdSys
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )
-
-install(
-  DIRECTORY      XrdOuc/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdOuc
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )
-
-install(
-  DIRECTORY      XrdNet/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdNet
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )
-
-install(
-  DIRECTORY      XrdSut/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdSut
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )
-
-install(
-  DIRECTORY      Xrd/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/Xrd
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )
-
-install(
-  DIRECTORY      XrdCks/
-  DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdCks
-  FILES_MATCHING
-  PATTERN "*.hh"
-  PATTERN "*.icc" )

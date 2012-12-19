@@ -37,10 +37,10 @@
 #include <errno.h>
 #include <time.h>
 
-#include <XrdCrypto/XrdCryptosslRSA.hh>
-#include <XrdCrypto/XrdCryptosslX509Crl.hh>
-#include <XrdCrypto/XrdCryptosslAux.hh>
-#include <XrdCrypto/XrdCryptosslTrace.hh>
+#include "XrdCrypto/XrdCryptosslRSA.hh"
+#include "XrdCrypto/XrdCryptosslX509Crl.hh"
+#include "XrdCrypto/XrdCryptosslAux.hh"
+#include "XrdCrypto/XrdCryptosslTrace.hh"
 
 #include <openssl/bn.h>
 #include <openssl/pem.h>
@@ -340,6 +340,7 @@ int XrdCryptosslX509Crl::LoadCache()
    // Load relevant info into the cache
    // Return 0 if ok, -1 in case of error
    EPNAME("LoadCache");
+   XrdSutCacheRef pfeRef;
 
    // The CRL must exists
    if (!crl) {
@@ -393,7 +394,7 @@ int XrdCryptosslX509Crl::LoadCache()
          TRACE(Dump, "certificate with serial number: "<<tagser<<
                      "  has been revoked");
          // Add to the cache
-         XrdSutPFEntry *cent = cache.Add((const char *)tagser);
+         XrdSutPFEntry *cent = cache.Add(pfeRef, (const char *)tagser);
          if (!cent) {
             DEBUG("problems updating the cache");
             return -1;
@@ -406,6 +407,7 @@ int XrdCryptosslX509Crl::LoadCache()
    }
 
    // rehash the cache
+   pfeRef.UnLock(); // Prevent lock inversion (though it doesn't matter here)
    cache.Rehash(1);
 
    return 0;
@@ -459,9 +461,7 @@ const char *XrdCryptosslX509Crl::Issuer()
       }
 
       // Extract issuer name
-      char *xname = X509_NAME_oneline(X509_CRL_get_issuer(crl), 0, 0);
-      issuer = xname;
-      OPENSSL_free(xname);
+      XrdCryptosslNameOneLine(X509_CRL_get_issuer(crl), issuer);
    }
 
    // return what we have
@@ -469,26 +469,44 @@ const char *XrdCryptosslX509Crl::Issuer()
 }
 
 //_____________________________________________________________________________
-const char *XrdCryptosslX509Crl::IssuerHash()
+const char *XrdCryptosslX509Crl::IssuerHash(int alg)
 {
-   // Return issuer name
-   EPNAME("X509Crl::IssuerHash");
+   // Return hash of issuer name
+   // Use default algorithm (X509_NAME_hash) for alg = 0, old algorithm
+   // (for v>=1.0.0) when alg = 1
+   EPNAME("X509::IssuerHash");
+
+#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+   if (alg == 1) {
+      // md5 based
+      if (issueroldhash.length() <= 0) {
+         // Make sure we have a certificate
+         if (crl) {
+            char chash[15] = {0};
+            snprintf(chash,15,"%08lx.0",X509_NAME_hash_old(crl->crl->issuer));
+            issueroldhash = chash;
+         } else {
+            DEBUG("WARNING: no certificate available - cannot extract issuer hash (md5)");
+         }
+      }
+      // return what we have
+      return (issueroldhash.length() > 0) ? issueroldhash.c_str() : (const char *)0;
+   }
+#else
+   if (alg == 1) { }
+#endif
 
    // If we do not have it already, try extraction
    if (issuerhash.length() <= 0) {
 
-      // Make sure we have a CRL
+      // Make sure we have a certificate
       if (crl) {
          char chash[15] = {0};
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
-         if (XrdCryptosslUseHashOld())
-            snprintf(chash,15,"%08lx.0",X509_NAME_hash_old(crl->crl->issuer));
-#endif
          if (chash[0] == 0)
             snprintf(chash,15,"%08lx.0",X509_NAME_hash(crl->crl->issuer));
          issuerhash = chash;
       } else {
-         DEBUG("WARNING: no CRL available - cannot extract issuer hash");
+         DEBUG("WARNING: no certificate available - cannot extract issuer hash (default)");
       }
    }
 
@@ -521,6 +539,7 @@ bool XrdCryptosslX509Crl::IsRevoked(int serialnumber, int when)
    // Check if certificate with serialnumber is in the
    // list of revocated certificates
    EPNAME("IsRevoked");
+   XrdSutCacheRef pfeRef;
 
    // Reference time
    int now = (when > 0) ? when : time(0);
@@ -541,7 +560,7 @@ bool XrdCryptosslX509Crl::IsRevoked(int serialnumber, int when)
    sprintf(tagser,"%x",serialnumber);
 
    // Look into the cache
-   XrdSutPFEntry *cent = cache.Get((const char *)tagser);
+   XrdSutPFEntry *cent = cache.Get(pfeRef, (const char *)tagser);
    if (cent) {
       // Check the revocation time
       if (now > cent->mtime) {
@@ -560,6 +579,7 @@ bool XrdCryptosslX509Crl::IsRevoked(const char *sernum, int when)
    // Check if certificate with 'sernum' is in the
    // list of revocated certificates
    EPNAME("IsRevoked");
+   XrdSutCacheRef pfeRef;
 
    // Reference time
    int now = (when > 0) ? when : time(0);
@@ -576,7 +596,7 @@ bool XrdCryptosslX509Crl::IsRevoked(const char *sernum, int when)
    }
 
    // Look into the cache
-   XrdSutPFEntry *cent = cache.Get((const char *)sernum);
+   XrdSutPFEntry *cent = cache.Get(pfeRef, (const char *)sernum);
    if (cent) {
       // Check the revocation time
       if (now > cent->mtime) {
@@ -613,7 +633,7 @@ void XrdCryptosslX509Crl::Dump()
    PRINT("+ File:    "<<ParentFile());
    PRINT("+");
    PRINT("+ Issuer:  "<<Issuer());
-   PRINT("+ Issuer hash:  "<<IssuerHash());
+   PRINT("+ Issuer hash:  "<<IssuerHash(0));
    PRINT("+");
    if (IsExpired()) {
       PRINT("+ Validity: (expired!)");

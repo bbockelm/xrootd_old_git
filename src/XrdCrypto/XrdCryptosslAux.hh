@@ -34,8 +34,8 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include <XrdCrypto/XrdCryptoAux.hh>
-#include <XrdCrypto/XrdCryptoX509Chain.hh>
+#include "XrdCrypto/XrdCryptoAux.hh"
+#include "XrdCrypto/XrdCryptoX509Chain.hh"
 #include <openssl/asn1.h>
 
 #define kSslKDFunDefLen  24
@@ -63,6 +63,9 @@ int XrdCryptosslX509ParseBucket(XrdSutBucket *b, XrdCryptoX509Chain *c);
 // Function to convert from ASN1 time format into UTC since Epoch (Jan 1, 1970) 
 int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1);
 
+// Function to convert X509_NAME into a one-line human readable string
+void XrdCryptosslNameOneLine(X509_NAME *nm, XrdOucString &s);
+
 /******************************************************************************/
 /*          E r r o r   L o g g i n g / T r a c i n g   F l a g s             */
 /******************************************************************************/
@@ -70,12 +73,6 @@ int XrdCryptosslASN1toUTC(ASN1_TIME *tsn1);
 #define sslTRACE_Dump      0x0004
 #define sslTRACE_Debug     0x0002
 #define sslTRACE_Notify    0x0001
-
-/******************************************************************************/
-/*          H a s h i n g    a l g o r i t h m    c o n t r o l               */
-/******************************************************************************/
-void XrdCryptosslSetUseHashOld(bool on = 1);
-bool XrdCryptosslUseHashOld();
 
 #endif
 
