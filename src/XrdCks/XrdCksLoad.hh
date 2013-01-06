@@ -1,10 +1,10 @@
-#ifndef __XRDCKSMANAGER_HH__
-#define __XRDCKSMANAGER_HH__
+#ifndef __XRDCKSLOADER_HH__
+#define __XRDCKSLOADER_HH__
 /******************************************************************************/
 /*                                                                            */
-/*                      X r d C k s M a n a g e r . h h                       */
+/*                       X r d C k s L o a d e r . h h                        */
 /*                                                                            */
-/* (c) 2011 by the Board of Trustees of the Leland Stanford, Jr., University  */
+/* (c) 2012 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
@@ -35,17 +35,16 @@
 #include "XrdCks/XrdCks.hh"
 #include "XrdCks/XrdCksData.hh"
 
-/* This class defines the checksum management interface. It may also be used
-   as the base class for a plugin. This allows you to replace selected methods
-   which may be needed for handling certain filesystems (see protected ones).
+/* This class defines the checksum loader interface. It is intended to be used
+   by xrootd clients to obtain an instance of a checksum calculation object.
+   This object may be builtin or may come from a shared library.
 */
 
 class  XrdCksCalc;
-class  XrdCksLoader;
 class  XrdSysError;
 struct XrdVersionInfo;
   
-class XrdCksManager : public XrdCks
+class XrdCksLoader : public XrdCks
 {
 public:
 virtual int         Calc( const char *Pfn, XrdCksData &Cks, int doSet=1);
@@ -70,9 +69,9 @@ virtual int         Set(  const char *Pfn, XrdCksData &Cks, int myTime=0);
 
 virtual int         Ver(  const char *Pfn, XrdCksData &Cks);
 
-                    XrdCksManager(XrdSysError *erP, int iosz,
-                                  XrdVersionInfo &vInfo, bool autoload=false);
-virtual            ~XrdCksManager();
+                    XrdCksLoader(XrdSysError *erP, int iosz,
+                                  XrdVersionInfo *vInfo);
+virtual            ~XrdCksLoader();
 
 protected:
 
@@ -97,20 +96,17 @@ struct csInfo
        char         *Parms;
        XrdSysPlugin *Plugin;
        int           Len;
-       bool          doDel;
-                     csInfo() : Obj(0), Path(0), Parms(0), Plugin(0), Len(0),
-                                doDel(true)
+                     csInfo() : Obj(0), Path(0), Parms(0), Plugin(0), Len(0)
                                 {memset(Name, 0, sizeof(Name));}
       };
 
 int     Config(const char *cFN, csInfo &Info);
 csInfo *Find(const char *Name);
 
-static const int csMax = 8;
+static const int csMax = 4;
 csInfo           csTab[csMax];
 int              csLast;
 int              segSize;
-XrdCksLoader    *cksLoader;
-XrdVersionInfo  &myVersion;
+XrdVersionInfo  *myVersion;
 };
 #endif

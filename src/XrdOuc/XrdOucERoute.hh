@@ -1,10 +1,10 @@
-#ifndef __XRDPOSIXOSDEP_H__
-#define __XRDPOSIXOSDEP_H__
+#ifndef __SYS_EROUTE_H__
+#define __SYS_EROUTE_H__
 /******************************************************************************/
 /*                                                                            */
-/*                      X r d P o s i x O s D e p . h h                       */
+/*                       X r d O u c E R o u t e . h h                        */
 /*                                                                            */
-/* (c) 2005 by the Board of Trustees of the Leland Stanford, Jr., University  */
+/* (c) 2012 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
@@ -28,48 +28,51 @@
 /* The copyright holder's institutional names and contributor's names may not */
 /* be used to endorse or promote products derived from this software without  */
 /* specific prior written permission of the institution or contributor.       */
-/* Modified by Frank Winklmeier to add the full Posix file system definition. */
 /******************************************************************************/
+
+class XrdOucStream;
+class XrdSysError;
   
-// Solaris does not have a statfs64 structure. So all interfaces use statfs.
-//
-#ifdef __solaris__
-#define statfs64 statfs
-#endif
+class XrdOucERoute
+{
+public:
 
-// We need to avoid using dirent64 for MacOS platforms. We would normally
-// include XrdSysPlatform.hh for this but this include file needs to be
-// standalone. So, we replicate the dirent64 redefinition here, Additionally,
-// off64_t, normally defined in Solaris and Linux, is cast as long long (the
-// appropriate type for the next 25 years). The Posix interface only supports
-// 64-bit offsets.
-//
-#if  defined(__APPLE__)
-#if !defined(dirent64)
-#define dirent64 dirent
-#endif
-#if !defined(off64_t)
-#define off64_t long long
-#endif
+//-----------------------------------------------------------------------------
+//! Format an error message into a buffer in the form of:
+//! "Unable to <etxt1> <etxt2>; <syserror[enum]>"
+//!
+//! @param  buff    pointer to the buffer where the msg is to be placed.
+//! @param  blen    the length of the buffer.
+//! @param  ecode   the error number associated iwth the error.
+//! @param  etxt1   associated text token #1.
+//! @param  etxt2   associated text token #2 (optional).
+//!
+//! @return <int>   The number of characters placed in the buffer less null.
+//-----------------------------------------------------------------------------
 
-#if defined(__DARWIN_VERS_1050) && !__DARWIN_VERS_1050
-#if !defined(stat64)
-#define stat64 stat
-#endif
-#if !defined(statfs64)
-#define statfs64 statfs
-#endif
-#endif
+static int Format(char *buff, int blen, int ecode, const char *etxt1,
+                                                   const char *etxt2=0);
 
-#if !defined(statvfs64)
-#define statvfs64 statvfs
-#endif
-#define ELIBACC ESHLIBVERS
-#endif
+//-----------------------------------------------------------------------------
+//! Format an error message using Format() and route it as requested.
+//!
+//! @param  elog    pointer to the XrdSysError object to use to route the
+//!                 message to the log, If null, the message isn't routed there.
+//! @param  estrm   pointer to the XrdOucStrean object which is to receive the
+//!                 error message text or null if none exists.
+//! @param  esfx    The suffix identifier to use when routing to the log.
+//! @param  enum    the error number associated iwth the error.
+//! @param  etxt1   associated text token #1.
+//! @param  etxt2   associated text token #2 (optional).
+//!
+//! @return <int>   The -abs(enum) or -1 if enum is zero.
+//-----------------------------------------------------------------------------
 
-#ifdef __FreeBSD__
-#define	dirent64 dirent
-#define	ELIBACC EFTYPE
-#endif
+static int Route(XrdSysError *elog, XrdOucStream *estrm, const char *esfx,
+                 int ecode, const char *etxt1, const char *etxt2=0);
 
+         XrdOucERoute() {}
+
+        ~XrdOucERoute() {}
+};
 #endif

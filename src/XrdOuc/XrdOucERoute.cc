@@ -1,10 +1,8 @@
-#ifndef __XRDPOSIXOSDEP_H__
-#define __XRDPOSIXOSDEP_H__
 /******************************************************************************/
 /*                                                                            */
-/*                      X r d P o s i x O s D e p . h h                       */
+/*                       X r d O u c E R o u t e . h h                        */
 /*                                                                            */
-/* (c) 2005 by the Board of Trustees of the Leland Stanford, Jr., University  */
+/* (c) 2012 by the Board of Trustees of the Leland Stanford, Jr., University  */
 /*                            All Rights Reserved                             */
 /*   Produced by Andrew Hanushevsky for Stanford University under contract    */
 /*              DE-AC02-76-SFO0515 with the Department of Energy              */
@@ -28,48 +26,69 @@
 /* The copyright holder's institutional names and contributor's names may not */
 /* be used to endorse or promote products derived from this software without  */
 /* specific prior written permission of the institution or contributor.       */
-/* Modified by Frank Winklmeier to add the full Posix file system definition. */
+/******************************************************************************/
+
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "XrdOuc/XrdOucERoute.hh"
+#include "XrdOuc/XrdOucStream.hh"
+#include "XrdSys/XrdSysError.hh"
+#include "XrdSys/XrdSysPlatform.hh"
+
+/******************************************************************************/
+/*                                F o r m a t                                 */
 /******************************************************************************/
   
-// Solaris does not have a statfs64 structure. So all interfaces use statfs.
+int XrdOucERoute::Format(char *buff, int blen, int ecode, const char *etxt1,
+                                                          const char *etxt2)
+{
+   const char *esep = " ", *estr = XrdSysError::ec2text(ecode);
+   char ebuff[256];
+   int n;
+
+// Substitute something of no ecode translation exists
 //
-#ifdef __solaris__
-#define statfs64 statfs
-#endif
+   if (!estr) estr = "reason unknown";
+      else if (isupper(static_cast<int>(*estr)))
+              {strlcpy(ebuff, estr, sizeof(ebuff));
+               *ebuff = static_cast<char>(tolower(static_cast<int>(*estr)));
+               estr = ebuff;
+              }
 
-// We need to avoid using dirent64 for MacOS platforms. We would normally
-// include XrdSysPlatform.hh for this but this include file needs to be
-// standalone. So, we replicate the dirent64 redefinition here, Additionally,
-// off64_t, normally defined in Solaris and Linux, is cast as long long (the
-// appropriate type for the next 25 years). The Posix interface only supports
-// 64-bit offsets.
+// Set format elements
 //
-#if  defined(__APPLE__)
-#if !defined(dirent64)
-#define dirent64 dirent
-#endif
-#if !defined(off64_t)
-#define off64_t long long
-#endif
+   if (!etxt2) etxt2 = esep = "";
 
-#if defined(__DARWIN_VERS_1050) && !__DARWIN_VERS_1050
-#if !defined(stat64)
-#define stat64 stat
-#endif
-#if !defined(statfs64)
-#define statfs64 statfs
-#endif
-#endif
+// Format the message
+//
+   n = snprintf(buff, blen, "Unable to %s%s%s; %s",etxt1,esep,etxt2,estr);
+   return (n < blen ? n : blen-1);
+}
 
-#if !defined(statvfs64)
-#define statvfs64 statvfs
-#endif
-#define ELIBACC ESHLIBVERS
-#endif
+/******************************************************************************/
+/*                                 R o u t e                                  */
+/******************************************************************************/
+  
+int XrdOucERoute::Route(XrdSysError *elog,  XrdOucStream *estrm,
+                        const char  *esfx,  int           ecode,
+                        const char  *etxt1, const char   *etxt2)
+{
+   char ebuff[2048];
+   int elen;
 
-#ifdef __FreeBSD__
-#define	dirent64 dirent
-#define	ELIBACC EFTYPE
-#endif
+// Format the error message
+//
+   elen = Format(ebuff, sizeof(ebuff), ecode, etxt1, etxt2);
 
-#endif
+// Route appropriately
+//
+   if (elog)  elog->Emsg(esfx, ebuff);
+   if (estrm) estrm->Put(ebuff, elen);
+
+// Return the error number
+//
+   if (ecode) return (ecode < 0 ? ecode : -ecode);
+   return -1;
+}

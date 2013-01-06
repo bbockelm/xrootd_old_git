@@ -58,6 +58,8 @@ add_library(
   XrdClAsyncSocketHandler.cc  XrdClAsyncSocketHandler.hh
   XrdClChannelHandlerList.cc  XrdClChannelHandlerList.hh
   XrdClForkHandler.cc         XrdClForkHandler.hh
+  XrdClCheckSumManager.cc     XrdClCheckSumManager.hh
+  XrdClTransportManager.cc    XrdClTransportManager.hh
   ${LIBEVENT_POLLER_FILES}
 )
 
@@ -123,7 +125,14 @@ install(
     XrdClMonitor.hh
     XrdClPostMaster.hh
     XrdClPostMasterInterfaces.hh
+    XrdClTransportManager.hh
     XrdClStatus.hh
     XrdClURL.hh
     XrdClXRootDResponses.hh
   DESTINATION    ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdCl )
+
+install(
+  FILES
+  ${PROJECT_SOURCE_DIR}/docs/man/xrdfs.1
+  ${PROJECT_SOURCE_DIR}/docs/man/xrdcopy.1
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )

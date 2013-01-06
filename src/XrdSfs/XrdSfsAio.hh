@@ -34,7 +34,7 @@
 // _POSIX_ASYNCHRONOUS_IO, if it is defined, is in unistd.h.
 #include <unistd.h>
 #ifdef _POSIX_ASYNCHRONOUS_IO
-#ifdef __macos__
+#ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #include <sys/aio.h>
 #else
@@ -77,7 +77,7 @@ virtual void doneWrite() = 0;
 virtual void Recycle() = 0;
 
              XrdSfsAio() {
-#if defined(__macos__) && (!defined(MAC_OS_X_VERSION_10_4) || \
+#if defined(__APPLE__) && (!defined(MAC_OS_X_VERSION_10_4) || \
     MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_4)
                          sfsAio.aio_sigevent.sigev_value.sigval_ptr = (void *)this;
 #else
