@@ -89,8 +89,11 @@ void
 XrdThrottleManager::StealShares(int uid, int &reqsize, int &reqops)
 {
    if (!reqsize && !reqops) return;
-   TRACE(BANDWIDTH, "Stealing shares to fill request of " << reqsize << " bytes");
-   TRACE(IOPS, "Stealing shares to fill request of " << reqops << " ops.");
+   if (TRACING(DEBUG))
+   {
+      TRACE(BANDWIDTH, "Stealing shares to fill request of " << reqsize << " bytes");
+      TRACE(IOPS, "Stealing shares to fill request of " << reqops << " ops.");
+   }
 
    for (int i=uid+1; i % m_max_users == uid; i++)
    {
@@ -98,8 +101,11 @@ XrdThrottleManager::StealShares(int uid, int &reqsize, int &reqops)
       if (reqops)  GetShares(m_secondary_ops_shares[  i % m_max_users], reqops);
    }
 
-   TRACE(BANDWIDTH, "After stealing shares, " << reqsize << " of request bytes remain.");
-   TRACE(IOPS, "After stealing shares, " << reqops << " of request ops remain.");
+   if (TRACING(DEBUG))
+   {
+      TRACE(BANDWIDTH, "After stealing shares, " << reqsize << " of request bytes remain.");
+      TRACE(IOPS, "After stealing shares, " << reqops << " of request ops remain.");
+   }
 }
 
 /*
@@ -120,13 +126,16 @@ XrdThrottleManager::Apply(int reqsize, int reqops, int uid)
       GetShares(m_primary_bytes_shares[uid], reqsize);
       if (reqsize)
       {
-         TRACE(BANDWIDTH, "Using secondary shares; request has " << reqsize << " bytes left.");
+         if (TRACING(DEBUG))
+            TRACE(BANDWIDTH, "Using secondary shares; request has " << reqsize << " bytes left.");
          GetShares(m_secondary_bytes_shares[uid], reqsize);
-         TRACE(BANDWIDTH, "Finished with secondary shares; request has " << reqsize << " bytes left.");
+         if (TRACING(DEBUG))
+            TRACE(BANDWIDTH, "Finished with secondary shares; request has " << reqsize << " bytes left.");
       }
       else
       {
-         TRACE(BANDWIDTH, "Filled byte shares out of primary; " << m_primary_bytes_shares[uid] << " left.");
+         if (TRACING(DEBUG))
+            TRACE(BANDWIDTH, "Filled byte shares out of primary; " << m_primary_bytes_shares[uid] << " left.");
       }
       GetShares(m_primary_ops_shares[uid], reqops);
       if (reqops)
@@ -138,8 +147,8 @@ XrdThrottleManager::Apply(int reqsize, int reqops, int uid)
 
       if (reqsize || reqops)
       {
-         if (reqsize) TRACE(BANDWIDTH, "Sleeping to wait for throttle fairshare.");
-         if (reqops) TRACE(IOPS, "Sleeping to wait for throttle fairshare.");
+         if (reqsize && TRACING(DEBUG)) TRACE(BANDWIDTH, "Sleeping to wait for throttle fairshare.");
+         if (reqops && TRACING(DEBUG)) TRACE(IOPS, "Sleeping to wait for throttle fairshare.");
          m_compute_var.Wait();
          AtomicBeg(m_compute_var);
          AtomicInc(m_loadshed_limit_hit);
@@ -234,19 +243,24 @@ XrdThrottleManager::RecomputeInternal()
 
    // Reset the loadshed limit counter.
    int limit_hit = AtomicFAZ(m_loadshed_limit_hit);
-   TRACE(DEBUG, "Throttle limit hit " << limit_hit << " times during last interval.");
+   TRACE(ALL, "Throttle limit hit " << limit_hit << " times during last interval.");
 
    AtomicEnd(m_compute_var);
 
    // Update the IO counters
    m_compute_var.Lock();
    m_stable_io_counter = AtomicGet(m_io_counter);
+   // If the stable counter is greater than the limit, it just means there is one
+   // or more waiter.  Report the correct number in the debug statement to avoid confusing
+   // sysadmins.
+   if (m_stable_io_counter > m_concurrency_limit)
+       m_stable_io_counter = m_concurrency_limit;
    m_stable_io_wait.tv_sec += static_cast<long>(AtomicFAZ(m_io_wait.tv_sec) * intervals_per_second);
    m_stable_io_wait.tv_nsec += static_cast<long>(AtomicFAZ(m_io_wait.tv_nsec) * intervals_per_second);
    while (m_stable_io_wait.tv_nsec > 1000000000)
    {
       m_stable_io_wait.tv_nsec -= 1000000000;
-      m_stable_io_wait.tv_nsec --;
+      m_stable_io_wait.tv_sec++; 
    }
    m_compute_var.UnLock();
    TRACE(IOLOAD, "Current IO counter is " << m_stable_io_counter << "; total IO wait time is " << (m_stable_io_wait.tv_sec*1000+m_stable_io_wait.tv_nsec/1000000) << "ms.");

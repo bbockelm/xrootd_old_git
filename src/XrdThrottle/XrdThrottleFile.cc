@@ -6,7 +6,7 @@
 
 using namespace XrdThrottle;
 
-#define DO_LOADSHED(amount) if (m_redir || m_throttle.CheckLoadShed(amount, m_loadshed)) \
+#define DO_LOADSHED(amount) if (!m_redir && m_throttle.CheckLoadShed(amount, m_loadshed)) \
 { \
    unsigned port; \
    std::string host; \
@@ -50,6 +50,7 @@ File::open(const char                *fileName,
 {
    m_uid = XrdThrottleManager::GetUid(client->name);
    m_throttle.PrepLoadShed(opaque, m_loadshed);
+   DO_LOADSHED(1024*1024);
    return m_sfs->open(fileName, openMode, createMode, client, opaque);
 }
 

@@ -30,7 +30,7 @@
       {XRD_TRACE Beg(TraceID,TRACELINK->ID); cerr <<x; \
        XRD_TRACE End();}
 
-#define TRACING(x) XRD_TRACE What & x
+#define TRACING(x) XRD_TRACE What & TRACE_ ## x
 
 #else
 
